@@ -1,0 +1,272 @@
+﻿using System.Text.Json;
+using DemoToolAPI_1.Models;
+using Xunit;
+
+namespace DemoToolAPI_1.Tests
+{
+    public class ToolsControllerTests : IAsyncLifetime
+    {
+        private CustomWebApplicationFactory _factory = null!;
+        private HttpClient _client = null!;
+
+        public async Task InitializeAsync()
+        {
+            _factory = new CustomWebApplicationFactory();
+            _client = _factory.CreateClient();
+        }
+
+        public async Task DisposeAsync()
+        {
+            _client.Dispose();
+            await _factory.DisposeAsync();
+        }
+
+        #region SimpleScanner Tests
+
+        [Fact]
+        public async Task SimpleScanner_WithValidUrl_ReturnsOkResponse()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.GetAsync($"/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
+
+            // Assert
+            Assert.True(response.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task SimpleScanner_WithValidUrl_ReturnsValidResponse()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.GetAsync($"/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
+            var content = await response.Content.ReadAsStringAsync();
+            var scannerResponse = JsonSerializer.Deserialize<ScannerResponse>(content);
+
+            // Assert
+            Assert.NotNull(scannerResponse);
+            Assert.NotNull(scannerResponse.Status);
+            Assert.NotNull(scannerResponse.Message);
+            Assert.NotNull(scannerResponse.Links);
+        }
+
+        [Fact]
+        public async Task SimpleScanner_WithValidUrl_StatusIsOneOfExpectedValues()
+        {
+            // Arrange
+            var url = "https://example.com";
+            var expectedStatuses = new[] { "success", "partial", "failure", "error" };
+
+            // Act
+            var response = await _client.GetAsync($"/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
+            var content = await response.Content.ReadAsStringAsync();
+            var scannerResponse = JsonSerializer.Deserialize<ScannerResponse>(content);
+
+            // Assert
+            Assert.NotNull(scannerResponse);
+            Assert.Contains(scannerResponse.Status, expectedStatuses);
+        }
+
+        [Fact]
+        public async Task SimpleScanner_WithValidUrl_LinksHaveRequiredFields()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.GetAsync($"/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
+            var content = await response.Content.ReadAsStringAsync();
+            var scannerResponse = JsonSerializer.Deserialize<ScannerResponse>(content);
+
+            // Assert
+            Assert.NotNull(scannerResponse);
+            foreach (var link in scannerResponse.Links)
+            {
+                Assert.NotNull(link.LinkText);
+                Assert.NotNull(link.Url);
+            }
+        }
+
+        [Fact]
+        public async Task SimpleScanner_WithoutUrl_ReturnsBadRequest()
+        {
+            // Act
+            var response = await _client.GetAsync("/api/tools/simple-scanner");
+
+            // Assert
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task SimpleScanner_WithEmptyUrl_ReturnsBadRequest()
+        {
+            // Act
+            var response = await _client.GetAsync("/api/tools/simple-scanner?url=");
+
+            // Assert
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task SimpleScanner_MultipleCallsReturnDifferentResponses()
+        {
+            // Arrange
+            var url = "https://example.com";
+            var responses = new List<ScannerResponse>();
+
+            // Act - Call endpoint 20 times to increase chance of getting different responses
+            for (int i = 0; i < 20; i++)
+            {
+                var response = await _client.GetAsync($"/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
+                var content = await response.Content.ReadAsStringAsync();
+                var scannerResponse = JsonSerializer.Deserialize<ScannerResponse>(content);
+                if (scannerResponse != null)
+                {
+                    responses.Add(scannerResponse);
+                }
+            }
+
+            // Assert - Check that we get at least 2 different response types
+            var uniqueMessages = responses.Select(r => r.Message).Distinct().Count();
+            Assert.True(uniqueMessages >= 2, $"Expected at least 2 different responses, but got {uniqueMessages}");
+        }
+
+        #endregion
+
+        #region Attack Tests
+
+        [Fact]
+        public async Task Attack_WithValidUrl_ReturnsOkResponse()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+
+            // Assert
+            Assert.True(response.IsSuccessStatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Attack_WithValidUrl_ReturnsValidResponse()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+            var content = await response.Content.ReadAsStringAsync();
+            var attackResponse = JsonSerializer.Deserialize<AttackResponse>(content);
+
+            // Assert
+            Assert.NotNull(attackResponse);
+            Assert.NotNull(attackResponse.Status);
+            Assert.NotNull(attackResponse.Message);
+            Assert.NotNull(attackResponse.Severity);
+            Assert.NotNull(attackResponse.Details);
+        }
+
+        [Fact]
+        public async Task Attack_WithValidUrl_StatusIsOneOfExpectedValues()
+        {
+            // Arrange
+            var url = "https://example.com";
+            var expectedStatuses = new[] { "success", "partial", "failure", "error" };
+
+            // Act
+            var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+            var content = await response.Content.ReadAsStringAsync();
+            var attackResponse = JsonSerializer.Deserialize<AttackResponse>(content);
+
+            // Assert
+            Assert.NotNull(attackResponse);
+            Assert.Contains(attackResponse.Status, expectedStatuses);
+        }
+
+        [Fact]
+        public async Task Attack_WithValidUrl_SeverityIsOneOfExpectedValues()
+        {
+            // Arrange
+            var url = "https://example.com";
+            var expectedSeverities = new[] { "none", "low", "medium", "high", "unknown" };
+
+            // Act
+            var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+            var content = await response.Content.ReadAsStringAsync();
+            var attackResponse = JsonSerializer.Deserialize<AttackResponse>(content);
+
+            // Assert
+            Assert.NotNull(attackResponse);
+            Assert.Contains(attackResponse.Severity, expectedSeverities);
+        }
+
+        [Fact]
+        public async Task Attack_WithValidUrl_VulnerabilitiesFoundIsNonNegative()
+        {
+            // Arrange
+            var url = "https://example.com";
+
+            // Act
+            var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+            var content = await response.Content.ReadAsStringAsync();
+            var attackResponse = JsonSerializer.Deserialize<AttackResponse>(content);
+
+            // Assert
+            Assert.NotNull(attackResponse);
+            Assert.True(attackResponse.VulnerabilitiesFound >= 0);
+        }
+
+        [Fact]
+        public async Task Attack_WithoutUrl_ReturnsBadRequest()
+        {
+            // Act
+            var response = await _client.PostAsync("/api/tools/attack", null);
+
+            // Assert
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Attack_WithEmptyUrl_ReturnsBadRequest()
+        {
+            // Act
+            var response = await _client.PostAsync("/api/tools/attack?url=", null);
+
+            // Assert
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Attack_MultipleCallsReturnDifferentResponses()
+        {
+            // Arrange
+            var url = "https://example.com";
+            var responses = new List<AttackResponse>();
+
+            // Act - Call endpoint 20 times to increase chance of getting different responses
+            for (int i = 0; i < 20; i++)
+            {
+                var response = await _client.PostAsync($"/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
+                var content = await response.Content.ReadAsStringAsync();
+                var attackResponse = JsonSerializer.Deserialize<AttackResponse>(content);
+                if (attackResponse != null)
+                {
+                    responses.Add(attackResponse);
+                }
+            }
+
+            // Assert - Check that we get at least 2 different response types
+            var uniqueMessages = responses.Select(r => r.Message).Distinct().Count();
+            Assert.True(uniqueMessages >= 2, $"Expected at least 2 different responses, but got {uniqueMessages}");
+        }
+
+        #endregion
+    }
+}

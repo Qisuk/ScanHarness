@@ -1,0 +1,29 @@
+You are an AI assistant designed to help users with coding tasks, answer questions, and provide guidance on programming-related topics.
+This project will be a demonstation of how to call tools from an AI assistant. The tools that will be called are called both located on DemoToolAPI_1. The assistant will be able to call the tools and provide feedback on the success or failure of the tool calls, including any error messages or relevant information returned by the tools.
+There will be more tools added lateres
+When the tools are called the assistant will log the request to a log file for auditing and debugging purposes. The assistant will also provide feedback on the success or failure of the tool calls, including any error messages or relevant information returned by the tools.
+The log of tool calls will be tracked in a log file, which will include the timestamp of the request, the tool called, the parameters passed to the tool, and the response received from the tool. This log file will be useful for auditing and debugging purposes, allowing developers to trace back any issues that may arise during the execution of the tools.
+this log file will also have a UI that can be accesed via an API endpoint, allowing developers to view the log entries in a user-friendly format. The UI will provide filtering and searching capabilities, enabling developers to quickly locate specific log entries based on criteria such as timestamp, tool name, or response status.
+The assistant will allow the use of a numbeer of different LLM's to act as the brain of the assistant.
+The assistant will check if there is a valid tool for the task that the user is requesting. If a valid tool is found, the assistant will call the tool and log the request. If no valid tool is found, the assistant will provide feedback to the user indicating that no suitable tool is available for the requested task.
+When calling a tool the assistant will log the use of the tool, including the parameters passed to the tool and the response received from the tool. The assistant will also provide feedback to the user on the success or failure of the tool call, including any error messages or relevant information returned by the tool.
+Any time Attack is called the user should be prompted to confirm the action before proceeding. This confirmation step is important to ensure that the user is aware of the potential consequences of calling this tool, as it may perform actions that could have significant effects on the system or data.
+
+ScanHarness- this project will allow the user to interact with the assistant to perform scanning and attacks against a given UR. The assistant will also allow the user to veiw the log file of tool calls via a UI. The assistant will provide feedback on the success or failure of the tool calls, including any error messages or relevant information returned by the tools. The assistant will also log all tool calls to a log file for auditing and debugging purposes.
+This Harness should be designed to be modular and extensible, allowing for the addition of new tools and functionality in the future. The assistant should be able to handle a variety of tasks related to scanning and attacking URLs, providing users with a powerful and flexible tool for testing and evaluating web applications.
+this should also allow a number of different LLM's to be used as the brain of the assistant, allowing for flexibility in the choice of AI models and enabling users to select the model that best suits their needs.
+
+
+DemoToolAPI_1 will have two sets of endpoints SimpleScanner, and Attack. 
+SimpleScanner is a tool that will scan a given URL and return a list of all the links found on the site. The returned values will be in Json format, including the link text and the URL. This tool will return one of 10 dummy responeses, these will include failure responses, success responses, and error messages. along withe the message an array of links will be returned.
+Attack is a tool that will perform a simulated attack on a given URL. The returned values will be in Json format, including the status of the attack and any relevant information about the attack. This tool will return one of 10 dummy responses, including failure responses, success responses, and error messages.
+The DemoToolAPI_1 will store the demo responses in a local file, which will be used to simulate the behavior of the tool. The assistant will read the demo responses from this file and return them to the user when the tool is called. this will be a .json file that will be included in the project and will contain a set of predefined responses for the SimpleScanner and Attack endpoints. The assistant will read the demo responses from this file and return them to the user when the tool is called.
+
+
+All projects should include a readme file that provides an overview of the project, instructions for setting up and running the project, and any other relevant information. The readme file should be clear and concise, making it easy for developers to understand the purpose of the project and how to use it effectively.
+Unit tests should be included to verify the functionality of the assistant and the tools being called. These tests should cover a range of scenarios, including successful tool calls, failure cases, and error handling. The tests should be designed to ensure that the assistant behaves as expected and that any issues can be identified and resolved quickly.
+
+As well as unit tests Playwright tests should be included to verify the functionality of the UI
+
+
+Best practices for coding, testing, and documentation should be followed throughout the project to ensure that the code is maintainable, reliable, and easy to understand. This includes using clear and descriptive variable names, writing modular and reusable code, and providing thorough documentation for all functions and classes.

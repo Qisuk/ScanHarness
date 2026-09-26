@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "nd9NCzIYwnk=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\chris\\source\\repos\\ScanHarness\\ScanHarness\\ScanHarness.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\chris\\.nuget\\packages\\microsoft.aspnetcore.app.internal.assets\\10.0.11\\microsoft.aspnetcore.app.internal.assets.10.0.11.nupkg.sha512"
+  ],
+  "logs": []
+}
