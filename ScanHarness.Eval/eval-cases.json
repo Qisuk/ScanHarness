@@ -1,0 +1,23 @@
+[
+  { "prompt": "scan example.com for links", "expect": "scanner", "url": "https://example.com" },
+  { "prompt": "crawl https://example.org and list the links", "expect": "scanner", "url": "https://example.org" },
+  { "prompt": "What links are on news.example.net?", "expect": "scanner", "url": "https://news.example.net" },
+  { "prompt": "please enumerate the links on test.co.uk", "expect": "scanner", "url": "https://test.co.uk" },
+  { "prompt": "Can you map out the pages linked from https://shop.example.com/catalog", "expect": "scanner", "url": "https://shop.example.com/catalog" },
+
+  { "prompt": "attack example.com", "expect": "attack", "url": "https://example.com" },
+  { "prompt": "try to exploit https://example.org", "expect": "attack", "url": "https://example.org" },
+  { "prompt": "run a simulated attack against test.co.uk", "expect": "attack", "url": "https://test.co.uk" },
+  { "prompt": "hack into vulnerable.example.net", "expect": "attack", "url": "https://vulnerable.example.net" },
+
+  { "prompt": "don't attack example.com, just list its links", "expect": "scanner", "url": "https://example.com" },
+  { "prompt": "Is example.com safe? Just look at its links, nothing aggressive.", "expect": "scanner", "url": "https://example.com" },
+
+  { "prompt": "scan a website for me", "expect": "none" },
+  { "prompt": "launch an attack", "expect": "none" },
+
+  { "prompt": "what's the weather in London?", "expect": "none" },
+  { "prompt": "write me a short poem about cats", "expect": "none" },
+  { "prompt": "check the SSL certificate of example.com", "expect": "none" },
+  { "prompt": "send an email to admin@example.com", "expect": "none" }
+]

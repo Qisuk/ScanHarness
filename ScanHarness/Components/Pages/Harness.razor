@@ -3,7 +3,7 @@
 @using ScanHarness.Services
 @inject ToolCallService ToolCallService
 @inject LogService LogService
-@inject IAgentBrain AgentBrain
+@inject AgentBrainSelector BrainSelector
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -15,10 +15,23 @@
             <h1 class="harness-title">Tool Harness</h1>
             <p class="harness-subtitle">Ask the agent to run simulated scanning and attack tools. Every call is logged.</p>
         </div>
-        <span class="agent-chip" title="Agent brain in use">
-            <span class="agent-chip-dot"></span> @AgentBrain.Name
-        </span>
+        <div class="brain-picker" title="@(BrainSelector.LlmStatus ?? "Choose which brain decides the tool to call")">
+            <span class="agent-chip-dot @(BrainSelector.LlmStatus == null ? "" : "is-offline")"></span>
+            <label for="brain-select" class="brain-picker-label">Brain</label>
+            <select id="brain-select" class="brain-select" value="@BrainSelector.CurrentId"
+                    @onchange="OnBrainChanged" disabled="@isExecuting">
+                @foreach (var option in BrainSelector.Options)
+                {
+                    <option value="@option.Id">@option.DisplayName</option>
+                }
+            </select>
+        </div>
     </header>
+
+    @if (BrainSelector.LlmStatus != null)
+    {
+        <div class="llm-status">@BrainSelector.LlmStatus Using the keyword brain only.</div>
+    }
 
     <div class="row g-4">
         <!-- Main Content Area -->
@@ -58,7 +71,7 @@
                                    placeholder="e.g. scan example.com for links, or attack example.com" />
                             <button class="btn btn-primary px-4" @onclick="SubmitPrompt"
                                     disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting)">
-                                @(isExecuting ? "Working..." : "Send")
+                                @(isThinking ? "Thinking..." : isExecuting ? "Working..." : "Send")
                             </button>
                         </div>
 
@@ -139,10 +152,24 @@
     private readonly List<string> promptHistory = new();
     private int historyIndex = 0;
 
-    protected override void OnInitialized()
+    // True while the brain is deciding (LLM brains can take several seconds), before any tool runs.
+    private bool isThinking = false;
+
+    protected override async Task OnInitializedAsync()
     {
         ToolCallService.OnToolCallsChanged += OnToolCallsChanged;
         LogService.OnLogsChanged += OnLogsChanged;
+
+        // Lists the LLM endpoint's models; falls back to the keyword brain if it's unreachable.
+        await BrainSelector.InitializeAsync();
+    }
+
+    private void OnBrainChanged(ChangeEventArgs e)
+    {
+        if (BrainSelector.Select(e.Value?.ToString() ?? ""))
+        {
+            LogService.LogUser($"Switched brain to {BrainSelector.Current.Name}");
+        }
     }
 
     private void OnToolCallsChanged()
@@ -219,17 +246,37 @@
         {
             // Log the user's request, then let the agent decide which tool (if any) to call.
             LogService.LogUser($"Request: {userPrompt}");
-            var decision = await AgentBrain.DecideAsync(userPrompt);
+
+            var brain = BrainSelector.Current;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            isThinking = true;
+            ToolDecision decision;
+            try
+            {
+                decision = await brain.DecideAsync(userPrompt);
+            }
+            finally
+            {
+                isThinking = false;
+            }
+            var elapsed = $"{stopwatch.Elapsed.TotalSeconds:0.0}s";
             agentMessage = decision.Message;
+
+            if (decision.Error != null)
+            {
+                // The brain itself failed (e.g. LLM endpoint down): nothing is called.
+                LogService.LogError($"{brain.Name} failed after {elapsed}: {decision.Error}");
+                return;
+            }
 
             if (!decision.ToolFound || decision.Tool == null || decision.Action == null)
             {
                 // No suitable tool: report back to the user without calling anything.
-                LogService.LogWarning($"No tool selected for request: {userPrompt}");
+                LogService.LogWarning($"No tool selected for request: {userPrompt} · {brain.Name} · {elapsed}");
                 return;
             }
 
-            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action}");
+            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {brain.Name} · {elapsed}");
 
             // The approval requirement comes from the agent's decision, not the user.
             // The confirmation modal only appears when the chosen tool requires approval.
@@ -304,19 +351,51 @@
         margin: 0;
     }
 
-    .agent-chip {
+    .brain-picker {
         display: inline-flex;
         align-items: center;
-        gap: 0.45rem;
+        gap: 0.5rem;
         white-space: nowrap;
-        padding: 0.35rem 0.75rem;
+        padding: 0.3rem 0.4rem 0.3rem 0.75rem;
         border: 1px solid var(--sh-border);
         border-radius: 999px;
         background: var(--sh-surface);
+        box-shadow: var(--sh-shadow);
+        font-size: 0.8rem;
+    }
+
+    .brain-picker-label {
+        font-weight: 600;
+        color: var(--sh-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.7rem;
+        margin: 0;
+    }
+
+    .brain-select {
+        appearance: none;
+        border: none;
+        background: var(--sh-neutral-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 0.6rem center;
+        border-radius: 999px;
+        padding: 0.25rem 1.75rem 0.25rem 0.7rem;
         font-size: 0.8rem;
         font-weight: 500;
-        color: var(--sh-neutral);
+        color: var(--sh-text);
+        max-width: 16rem;
+        text-overflow: ellipsis;
+        cursor: pointer;
     }
+
+        .brain-select:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+        }
+
+        .brain-select:disabled {
+            cursor: wait;
+            opacity: 0.6;
+        }
 
     .agent-chip-dot {
         width: 8px;
@@ -324,6 +403,21 @@
         border-radius: 50%;
         background: var(--sh-success);
         box-shadow: 0 0 0 3px var(--sh-success-soft);
+    }
+
+        .agent-chip-dot.is-offline {
+            background: var(--sh-text-subtle);
+            box-shadow: 0 0 0 3px var(--sh-neutral-soft);
+        }
+
+    .llm-status {
+        margin: -0.75rem 0 1.25rem;
+        padding: 0.5rem 0.85rem;
+        border: 1px solid #fde7c2;
+        border-radius: var(--sh-radius-sm);
+        background: var(--sh-warning-soft);
+        color: var(--sh-warning);
+        font-size: 0.82rem;
     }
 
     /* Underlined tabs rather than Bootstrap's boxed tabs. */

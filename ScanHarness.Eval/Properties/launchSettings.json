@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ScanHarness.Eval": {
+      "commandName": "Project",
+      "commandLineArgs": "--mode json",
+      "workingDirectory": "$(ProjectDir)..",
+      "launchBrowser": false
+    }
+  }
+}

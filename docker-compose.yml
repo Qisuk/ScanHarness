@@ -1,0 +1,41 @@
+# Local LLM for the ScanHarness agent brain.
+#
+#   docker compose up -d                      # start Ollama
+#   ./scripts/pull-models.ps1                 # download the default test models
+#
+# The harness talks to Ollama through its OpenAI-compatible API at http://localhost:<port>/v1
+# (see the "Llm" section of ScanHarness/appsettings.json).
+#
+# If Ollama is also installed natively it already uses port 11434; run this one on another port
+# with  $env:OLLAMA_PORT=11435; docker compose up -d  and point Llm:BaseUrl at it.
+
+services:
+  ollama:
+    # Pinned so a new Ollama release can't change model behaviour mid-comparison.
+    image: ollama/ollama:${OLLAMA_VERSION:-0.34.4}
+    container_name: scanharness-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      # Downloaded models survive container re-creation.
+      - ollama-models:/root/.ollama
+    environment:
+      # Keep a model loaded between requests so only the first decision pays the load time.
+      - OLLAMA_KEEP_ALIVE=30m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # CPU-only by default. With an NVIDIA GPU (and the NVIDIA container toolkit), uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama-models:
