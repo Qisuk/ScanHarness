@@ -3,35 +3,38 @@
 
 <div class="output-display">
     <div class="output-header">
-        <span class="badge me-2" style="@GetStatusBadgeStyle()">@ToolCall.Status</span>
-        <small class="text-muted">@ToolCall.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</small>
+        <div class="output-tool">
+            <span class="output-tool-name">@ToolCall.Tool</span>
+            <span class="output-tool-sep">/</span>
+            <span>@ToolCall.Action</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <small class="output-time">@ToolCall.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</small>
+            <span class="badge @StatusStyles.PillClass(ToolCall.Status)">@ToolCall.Status</span>
+        </div>
     </div>
 
-    <div class="output-body">
-        <p><strong>Tool:</strong> @ToolCall.Tool / @ToolCall.Action</p>
+    @if (ToolCall.Parameters.Any())
+    {
+        <dl class="output-params">
+            @foreach (var param in ToolCall.Parameters)
+            {
+                <dt>@param.Key</dt>
+                <dd>@param.Value</dd>
+            }
+        </dl>
+    }
 
-        @if (ToolCall.Parameters.Any())
-        {
-            <p><strong>Parameters:</strong></p>
-            <ul class="small">
-                @foreach (var param in ToolCall.Parameters)
-                {
-                    <li>@param.Key: @param.Value</li>
-                }
-            </ul>
-        }
+    @if (ToolCall.Status == ToolCallStatus.Failed)
+    {
+        <div class="output-alert">Tool execution failed.</div>
+    }
 
-        @if (!string.IsNullOrEmpty(ToolCall.Result))
-        {
-            <p><strong>Result:</strong></p>
-            <pre class="result-json">@FormatResult()</pre>
-        }
-
-        @if (ToolCall.Status == ToolCallStatus.Failed)
-        {
-            <div class="alert alert-danger">Tool execution failed</div>
-        }
-    </div>
+    @if (!string.IsNullOrEmpty(ToolCall.Result))
+    {
+        <div class="output-label">Result</div>
+        <pre class="result-json sh-code">@FormatResult()</pre>
+    }
 </div>
 
 @code {
@@ -40,44 +43,79 @@
 
     // Pretty-print the result when it is valid JSON; otherwise show it as-is.
     private string FormatResult() => JsonFormatter.Pretty(ToolCall.Result);
-
-    private string GetStatusBadgeStyle()
-    {
-        return ToolCall.Status switch
-        {
-            ToolCallStatus.Completed => "background-color: #198754;",
-            ToolCallStatus.Failed => "background-color: #dc3545;",
-            ToolCallStatus.WaitingForApproval => "background-color: #ffc107; color: #000;",
-            ToolCallStatus.Running => "background-color: #0dcaf0;",
-            _ => "background-color: #6c757d;"
-        };
-    }
 }
 
 <style>
-    .output-display {
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-        padding: 10px;
+    .output-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid var(--sh-border);
     }
 
-    .output-header {
-        margin-bottom: 10px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #dee2e6;
+    .output-tool {
+        font-family: var(--sh-font-mono);
+        font-size: 0.9rem;
+    }
+
+    .output-tool-name {
+        font-weight: 600;
+    }
+
+    .output-tool-sep {
+        color: var(--sh-text-subtle);
+        margin: 0 0.15rem;
+    }
+
+    .output-time {
+        color: var(--sh-text-subtle);
+        font-family: var(--sh-font-mono);
+        font-size: 0.75rem;
+    }
+
+    .output-params {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.3rem 1rem;
+        margin: 0 0 1rem;
+        font-size: 0.85rem;
+    }
+
+        .output-params dt {
+            font-weight: 500;
+            color: var(--sh-text-muted);
+        }
+
+        .output-params dd {
+            margin: 0;
+            font-family: var(--sh-font-mono);
+            word-break: break-all;
+        }
+
+    .output-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sh-text-muted);
+        margin-bottom: 0.4rem;
+    }
+
+    .output-alert {
+        padding: 0.6rem 0.85rem;
+        margin-bottom: 1rem;
+        border: 1px solid #fecaca;
+        border-radius: var(--sh-radius-sm);
+        background: var(--sh-danger-soft);
+        color: var(--sh-danger);
+        font-size: 0.85rem;
+        font-weight: 500;
     }
 
     .result-json {
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 3px;
-        padding: 10px;
-        max-height: 260px;
-        overflow: auto;
-        white-space: pre;
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 12px;
-        line-height: 1.4;
-        margin-bottom: 0;
+        max-height: 320px;
     }
 </style>
