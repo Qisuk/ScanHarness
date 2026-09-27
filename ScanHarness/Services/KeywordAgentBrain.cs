@@ -4,9 +4,9 @@ using ScanHarness.Models;
 namespace ScanHarness.Services
 {
     /// <summary>
-    /// Default rule-based brain. Chooses a tool by matching keywords in the user's prompt
-    /// and extracting a target URL. This is a placeholder for an LLM-backed brain: swap in
-    /// another <see cref="IAgentBrain"/> without touching the UI or tool-execution code.
+    /// Rule-based brain. Chooses a tool by matching keywords in the user's prompt and
+    /// extracting a target URL. Always available, so it's the fallback when no LLM endpoint
+    /// is reachable and the baseline LLM brains are compared against in ScanHarness.Eval.
     /// </summary>
     public class KeywordAgentBrain : IAgentBrain
     {

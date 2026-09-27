@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Options;
 using ScanHarness.Components;
 using ScanHarness.Services;
+using ScanHarness.Services.Llm;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,8 +16,14 @@ builder.Services.AddHttpClient();
 // log file that LogService writes remains shared across all users.
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<ToolCallService>();
-// The agent "brain" that decides which tool to call. Swap this registration to use an LLM-backed brain.
-builder.Services.AddScoped<IAgentBrain, KeywordAgentBrain>();
+// Agent "brains" that decide which tool to call: the rule-based keyword brain, plus one brain
+// per model served by the OpenAI-compatible endpoint in the "Llm" config section (Ollama by default).
+builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection(LlmOptions.SectionName));
+builder.Services.AddHttpClient<OpenAiCompatibleClient>((sp, http) =>
+    OpenAiCompatibleClient.Configure(http, sp.GetRequiredService<IOptions<LlmOptions>>().Value));
+builder.Services.AddSingleton<KeywordAgentBrain>();
+// Scoped so each user (Blazor circuit) keeps their own brain choice.
+builder.Services.AddScoped<AgentBrainSelector>();
 
 var app = builder.Build();
 

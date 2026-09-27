@@ -33,6 +33,8 @@ public class ServerFixture
         };
         _process.StartInfo.Environment["ASPNETCORE_URLS"] = Host;
         _process.StartInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+        // UI tests need deterministic decisions, so use only the keyword brain even if an LLM endpoint is running.
+        _process.StartInfo.Environment["Llm__Enabled"] = "false";
         _process.Start();
 
         // Drain stdout/stderr (so the app never blocks on a full pipe buffer) and tee to a log file for debugging.
