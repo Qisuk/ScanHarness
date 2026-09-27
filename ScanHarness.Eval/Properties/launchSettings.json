@@ -2,11 +2,9 @@
   "profiles": {
     "ScanHarness.Eval": {
       "commandName": "Project",
-      "launchBrowser": true,
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:50782;http://localhost:50783"
+      "commandLineArgs": "--mode json",
+      "workingDirectory": "$(ProjectDir)..",
+      "launchBrowser": false
     }
   }
 }
