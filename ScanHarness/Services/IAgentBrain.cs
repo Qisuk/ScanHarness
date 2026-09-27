@@ -1,0 +1,18 @@
+using ScanHarness.Models;
+
+namespace ScanHarness.Services
+{
+    /// <summary>
+    /// The "brain" of the harness. Given a natural-language request from the user, it
+    /// decides which tool (if any) to call. Implementations are interchangeable so the
+    /// harness can use different LLMs (or a rule-based stub) as the decision maker.
+    /// </summary>
+    public interface IAgentBrain
+    {
+        /// <summary>Human-readable name of the brain (shown in the UI/logs).</summary>
+        string Name { get; }
+
+        /// <summary>Interpret the user's prompt and decide which tool to call.</summary>
+        Task<ToolDecision> DecideAsync(string prompt);
+    }
+}

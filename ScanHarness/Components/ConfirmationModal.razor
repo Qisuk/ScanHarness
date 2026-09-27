@@ -1,0 +1,104 @@
+@using ScanHarness.Models
+
+<div class="confirmation-modal-backdrop">
+    <div class="confirmation-modal">
+        <div class="modal-header bg-warning text-dark">
+            <h5 class="modal-title">Authorization Required</h5>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-warning announcement" role="alert">
+                <strong>⚠️ Action Requires Approval</strong>
+            </div>
+            <p><strong>Tool:</strong> @ToolCall.Tool</p>
+            <p><strong>Action:</strong> @ToolCall.Action</p>
+            <p><strong>Parameters:</strong></p>
+            <ul>
+                @foreach (var param in ToolCall.Parameters)
+                {
+                    <li>@param.Key: @param.Value</li>
+                }
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-danger" @onclick="OnReject">Reject</button>
+            <button type="button" class="btn btn-success" @onclick="OnApprove">Approve</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public ToolCall ToolCall { get; set; } = null!;
+
+    [Parameter]
+    public EventCallback OnApprove { get; set; }
+
+    [Parameter]
+    public EventCallback OnReject { get; set; }
+}
+
+<style>
+    .confirmation-modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .confirmation-modal {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.3);
+        min-width: 400px;
+        animation: slideIn 0.3s ease-out;
+    }
+
+    .announcement {
+        animation: pulse 1s infinite;
+    }
+
+    @@keyframes slideIn {
+        from {
+            transform: translateY(-50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    @@keyframes pulse {
+        0%, 100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.7;
+        }
+    }
+
+    .modal-header {
+        padding: 15px;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .modal-body {
+        padding: 15px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .modal-footer {
+        padding: 15px;
+        border-top: 1px solid #dee2e6;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+</style>

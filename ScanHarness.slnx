@@ -1,9 +1,0 @@
-﻿<Solution>
-  <Folder Name="/.github/">
-    <File Path="copilot-instructions.md" />
-  </Folder>
-  <Project Path="../DemoAPIStub/DemoAPIStub.csproj" />
-  <Project Path="../DemoToolAPI_1/DemoToolAPI_1.csproj" />
-  <Project Path="../DemoToolAPI_1.Tests/DemoToolAPI_1.Tests.csproj" />
-  <Project Path="ScanHarness.csproj" />
-</Solution>

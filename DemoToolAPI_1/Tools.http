@@ -1,0 +1,29 @@
+### DemoToolAPI_1 Test Endpoints
+
+### SimpleScanner - Get links from a URL
+GET https://localhost:7031/api/tools/simple-scanner?url=https://example.com
+Accept: application/json
+
+### Attack - Simulate an attack on a URL
+POST https://localhost:7031/api/tools/attack?url=https://example.com
+Accept: application/json
+
+### SimpleScanner - Test with example.org
+GET https://localhost:7031/api/tools/simple-scanner?url=https://example.org
+Accept: application/json
+
+### Attack - Test with example.org
+POST https://localhost:7031/api/tools/attack?url=https://example.org
+Accept: application/json
+
+### SimpleScanner - Missing URL parameter (error case)
+GET https://localhost:7031/api/tools/simple-scanner
+Accept: application/json
+
+### Attack - Missing URL parameter (error case)
+POST https://localhost:7031/api/tools/attack
+Accept: application/json
+
+### View OpenAPI spec
+GET https://localhost:7031/openapi/v1.json
+Accept: application/json

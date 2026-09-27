@@ -1,0 +1,188 @@
+{
+  "simpleScannerResponses": [
+    {
+      "status": "success",
+      "message": "Scan completed successfully. Found 5 links.",
+      "links": [
+        { "linkText": "Home", "url": "https://example.com/" },
+        { "linkText": "About", "url": "https://example.com/about" },
+        { "linkText": "Contact", "url": "https://example.com/contact" },
+        { "linkText": "Products", "url": "https://example.com/products" },
+        { "linkText": "Blog", "url": "https://example.com/blog" }
+      ]
+    },
+    {
+      "status": "success",
+      "message": "Scan completed successfully. Found 3 links.",
+      "links": [
+        { "linkText": "Login", "url": "https://example.com/login" },
+        { "linkText": "Sign Up", "url": "https://example.com/signup" },
+        { "linkText": "Privacy Policy", "url": "https://example.com/privacy" }
+      ]
+    },
+    {
+      "status": "success",
+      "message": "Scan completed successfully. Found 8 links.",
+      "links": [
+        { "linkText": "Home", "url": "https://example.com/" },
+        { "linkText": "Services", "url": "https://example.com/services" },
+        { "linkText": "Portfolio", "url": "https://example.com/portfolio" },
+        { "linkText": "Team", "url": "https://example.com/team" },
+        { "linkText": "Blog", "url": "https://example.com/blog" },
+        { "linkText": "Contact", "url": "https://example.com/contact" },
+        { "linkText": "FAQ", "url": "https://example.com/faq" },
+        { "linkText": "Support", "url": "https://example.com/support" }
+      ]
+    },
+    {
+      "status": "success",
+      "message": "Scan completed successfully. Found 2 links.",
+      "links": [
+        { "linkText": "Main", "url": "https://example.com/" },
+        { "linkText": "Download", "url": "https://example.com/download" }
+      ]
+    },
+    {
+      "status": "partial",
+      "message": "Scan completed with warnings. Some links could not be accessed. Found 4 links.",
+      "links": [
+        { "linkText": "Home", "url": "https://example.com/" },
+        { "linkText": "About", "url": "https://example.com/about" },
+        { "linkText": "Gallery", "url": "https://example.com/gallery" },
+        { "linkText": "Contact", "url": "https://example.com/contact" }
+      ]
+    },
+    {
+      "status": "partial",
+      "message": "Scan timed out after 30 seconds. Partial results returned.",
+      "links": [
+        { "linkText": "Home", "url": "https://example.com/" },
+        { "linkText": "Products", "url": "https://example.com/products" }
+      ]
+    },
+    {
+      "status": "failure",
+      "message": "Failed to connect to the specified URL. The host may be unreachable.",
+      "links": []
+    },
+    {
+      "status": "failure",
+      "message": "Access denied. The server refused the connection.",
+      "links": []
+    },
+    {
+      "status": "error",
+      "message": "An unexpected error occurred during scanning. Please try again later.",
+      "links": []
+    },
+    {
+      "status": "error",
+      "message": "Invalid URL format. Please provide a valid URL.",
+      "links": []
+    }
+  ],
+  "attackResponses": [
+    {
+      "status": "success",
+      "message": "Attack simulation completed. No vulnerabilities found.",
+      "severity": "none",
+      "vulnerabilitiesFound": 0,
+      "details": {
+        "duration_ms": 2500,
+        "tests_run": 150
+      }
+    },
+    {
+      "status": "success",
+      "message": "Attack simulation completed. Low severity vulnerabilities detected.",
+      "severity": "low",
+      "vulnerabilitiesFound": 3,
+      "details": {
+        "duration_ms": 3100,
+        "tests_run": 150,
+        "findings": [ "Missing security headers", "Outdated library detected", "Weak password policy" ]
+      }
+    },
+    {
+      "status": "success",
+      "message": "Attack simulation completed. Medium severity vulnerabilities detected.",
+      "severity": "medium",
+      "vulnerabilitiesFound": 5,
+      "details": {
+        "duration_ms": 3500,
+        "tests_run": 150,
+        "findings": [ "SQL injection risk", "Cross-site scripting vulnerability", "Insecure cookies", "Missing rate limiting", "Verbose error messages" ]
+      }
+    },
+    {
+      "status": "success",
+      "message": "Attack simulation completed. High severity vulnerabilities detected!",
+      "severity": "high",
+      "vulnerabilitiesFound": 8,
+      "details": {
+        "duration_ms": 4200,
+        "tests_run": 150,
+        "findings": [ "Remote code execution risk", "Authentication bypass", "Privilege escalation", "Unencrypted data transmission", "Insecure deserialization", "Directory traversal", "Command injection", "Broken access control" ]
+      }
+    },
+    {
+      "status": "partial",
+      "message": "Attack simulation partially completed. Some tests could not be executed.",
+      "severity": "medium",
+      "vulnerabilitiesFound": 2,
+      "details": {
+        "duration_ms": 2800,
+        "tests_run": 98,
+        "findings": [ "Missing HTTPS", "Insecure session handling" ],
+        "skipped_tests": 52
+      }
+    },
+    {
+      "status": "failure",
+      "message": "Failed to initiate attack simulation. Cannot connect to the target URL.",
+      "severity": "unknown",
+      "vulnerabilitiesFound": 0,
+      "details": {
+        "duration_ms": 500,
+        "tests_run": 0
+      }
+    },
+    {
+      "status": "failure",
+      "message": "Attack simulation blocked. The target appears to have Web Application Firewall protection enabled.",
+      "severity": "unknown",
+      "vulnerabilitiesFound": 0,
+      "details": {
+        "duration_ms": 1200,
+        "tests_run": 25,
+        "blocked_by": "WAF"
+      }
+    },
+    {
+      "status": "error",
+      "message": "Attack simulation timed out after 30 seconds. The target responded too slowly.",
+      "severity": "unknown",
+      "vulnerabilitiesFound": 0,
+      "details": {
+        "duration_ms": 30000,
+        "tests_run": 45
+      }
+    },
+    {
+      "status": "error",
+      "message": "Invalid URL format. Please provide a valid URL.",
+      "severity": "unknown",
+      "vulnerabilitiesFound": 0,
+      "details": {}
+    },
+    {
+      "status": "error",
+      "message": "An unexpected error occurred during attack simulation. Please try again later.",
+      "severity": "unknown",
+      "vulnerabilitiesFound": 0,
+      "details": {
+        "error_code": "INTERNAL_ERROR"
+      }
+    }
+  ]
+}
