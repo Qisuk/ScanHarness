@@ -1,27 +1,30 @@
 @using ScanHarness.Models
 
 <div class="confirmation-modal-backdrop">
-    <div class="confirmation-modal">
-        <div class="modal-header bg-warning text-dark">
-            <h5 class="modal-title">Authorization Required</h5>
-        </div>
-        <div class="modal-body">
-            <div class="alert alert-warning announcement" role="alert">
-                <strong>⚠️ Action Requires Approval</strong>
+    <div class="confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-header">
+            <div class="confirm-icon" aria-hidden="true">!</div>
+            <div>
+                <h5 id="confirm-title" class="confirm-title">Authorization Required</h5>
+                <p class="confirm-subtitle">This action requires your approval before it runs.</p>
             </div>
-            <p><strong>Tool:</strong> @ToolCall.Tool</p>
-            <p><strong>Action:</strong> @ToolCall.Action</p>
-            <p><strong>Parameters:</strong></p>
-            <ul>
+        </div>
+        <div class="confirm-body">
+            <dl class="confirm-details">
+                <dt>Tool</dt>
+                <dd>@ToolCall.Tool</dd>
+                <dt>Action</dt>
+                <dd>@ToolCall.Action</dd>
                 @foreach (var param in ToolCall.Parameters)
                 {
-                    <li>@param.Key: @param.Value</li>
+                    <dt>@param.Key</dt>
+                    <dd>@param.Value</dd>
                 }
-            </ul>
+            </dl>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-danger" @onclick="OnReject">Reject</button>
-            <button type="button" class="btn btn-success" @onclick="OnApprove">Approve</button>
+        <div class="confirm-footer">
+            <button type="button" class="btn btn-outline-secondary" @onclick="OnReject">Reject</button>
+            <button type="button" class="btn btn-danger" @onclick="OnApprove">Approve</button>
         </div>
     </div>
 </div>
@@ -40,65 +43,104 @@
 <style>
     .confirmation-modal-backdrop {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
+        inset: 0;
+        background-color: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(2px);
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 1rem;
         z-index: 1000;
     }
 
     .confirmation-modal {
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.3);
-        min-width: 400px;
-        animation: slideIn 0.3s ease-out;
+        background: var(--sh-surface);
+        border-radius: 12px;
+        box-shadow: var(--sh-shadow-lg);
+        width: 100%;
+        max-width: 460px;
+        animation: confirmIn 0.18s ease-out;
     }
 
-    .announcement {
-        animation: pulse 1s infinite;
-    }
-
-    @@keyframes slideIn {
+    @@keyframes confirmIn {
         from {
-            transform: translateY(-50px);
+            transform: translateY(8px) scale(0.98);
             opacity: 0;
         }
         to {
-            transform: translateY(0);
+            transform: none;
             opacity: 1;
         }
     }
 
-    @@keyframes pulse {
-        0%, 100% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.7;
-        }
+    .confirm-header {
+        display: flex;
+        gap: 0.9rem;
+        align-items: flex-start;
+        padding: 1.25rem 1.25rem 0.75rem;
     }
 
-    .modal-header {
-        padding: 15px;
-        border-bottom: 1px solid #dee2e6;
+    .confirm-icon {
+        flex: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--sh-warning-soft);
+        color: var(--sh-warning);
+        font-weight: 700;
+        box-shadow: 0 0 0 6px #fffcf5;
     }
 
-    .modal-body {
-        padding: 15px;
+    .confirm-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin: 0.1rem 0 0.2rem;
+    }
+
+    .confirm-subtitle {
+        color: var(--sh-text-muted);
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .confirm-body {
+        padding: 0.5rem 1.25rem 1rem;
         max-height: 400px;
         overflow-y: auto;
     }
 
-    .modal-footer {
-        padding: 15px;
-        border-top: 1px solid #dee2e6;
+    .confirm-details {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.4rem 1rem;
+        margin: 0;
+        padding: 0.85rem 1rem;
+        background: var(--sh-surface-muted);
+        border: 1px solid var(--sh-border);
+        border-radius: var(--sh-radius-sm);
+        font-size: 0.85rem;
+    }
+
+        .confirm-details dt {
+            font-weight: 500;
+            color: var(--sh-text-muted);
+        }
+
+        .confirm-details dd {
+            margin: 0;
+            font-family: var(--sh-font-mono);
+            word-break: break-all;
+        }
+
+    .confirm-footer {
         display: flex;
-        gap: 10px;
+        gap: 0.5rem;
         justify-content: flex-end;
+        padding: 0.85rem 1.25rem;
+        border-top: 1px solid var(--sh-border);
+        background: var(--sh-surface-muted);
+        border-radius: 0 0 12px 12px;
     }
 </style>

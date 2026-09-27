@@ -1,55 +1,54 @@
 @using ScanHarness.Models
 
-<div class="history-view">
-    <table class="table table-sm table-hover">
-        <thead class="table-light">
+<div class="history-view sh-card">
+    <table class="table history-table mb-0">
+        <thead>
             <tr>
                 <th>Time</th>
                 <th>Tool</th>
                 <th>Action</th>
                 <th>Status</th>
-                <th>Result</th>
+                <th class="text-end">Result</th>
             </tr>
         </thead>
         <tbody>
             @if (!ToolCalls.Any())
             {
                 <tr>
-                    <td colspan="5" class="text-center text-muted">No tool calls yet</td>
+                    <td colspan="5" class="history-empty">No tool calls yet</td>
                 </tr>
             }
             else
             {
                 @foreach (var call in ToolCalls.OrderByDescending(t => t.CreatedAt))
                 {
-                    <tr style="cursor: pointer;" @onclick="() => expandedId = expandedId == call.Id ? null : call.Id">
-                        <td>@call.CreatedAt:HH:mm:ss</td>
+                    <tr class="history-row @(expandedId == call.Id ? "is-expanded" : "")"
+                        @onclick="() => expandedId = expandedId == call.Id ? null : call.Id">
+                        <td class="mono">@call.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</td>
                         <td>@call.Tool</td>
                         <td>@call.Action</td>
                         <td>
-                            <span class="badge" style="@GetStatusBadgeStyle(call.Status)">
-                                @call.Status
-                            </span>
+                            <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
                         </td>
-                        <td>
+                        <td class="text-end">
                             @if (!string.IsNullOrEmpty(call.Result))
                             {
-                                <span class="text-success">✓</span>
+                                <span class="history-has-result" title="Has result">✓</span>
                             }
                         </td>
                     </tr>
                     @if (expandedId == call.Id)
                     {
-                        <tr>
+                        <tr class="history-details-row">
                             <td colspan="5">
                                 <div class="expanded-details">
-                                    <strong>Parameters:</strong>
-                                    <pre>@string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}"))</pre>
+                                    <div class="output-label">Parameters</div>
+                                    <pre class="sh-code">@string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}"))</pre>
 
                                     @if (!string.IsNullOrEmpty(call.Result))
                                     {
-                                        <strong>Result:</strong>
-                                        <pre>@call.Result</pre>
+                                        <div class="output-label mt-3">Result</div>
+                                        <pre class="sh-code">@call.Result</pre>
                                     }
                                 </div>
                             </td>
@@ -66,40 +65,80 @@
     public List<ToolCall> ToolCalls { get; set; } = new();
 
     private string? expandedId;
-
-    private string GetStatusBadgeStyle(ToolCallStatus status)
-    {
-        return status switch
-        {
-            ToolCallStatus.Completed => "background-color: #198754;",
-            ToolCallStatus.Failed => "background-color: #dc3545;",
-            ToolCallStatus.WaitingForApproval => "background-color: #ffc107; color: #000;",
-            ToolCallStatus.Running => "background-color: #0dcaf0;",
-            _ => "background-color: #6c757d;"
-        };
-    }
 }
 
 <style>
     .history-view {
-        height: 100%;
-        overflow-y: auto;
+        overflow: auto;
+    }
+
+    .history-table {
+        font-size: 0.875rem;
+        --bs-table-bg: transparent;
+    }
+
+        .history-table thead th {
+            background: var(--sh-surface-muted);
+            color: var(--sh-text-muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--sh-border);
+            padding: 0.65rem 1rem;
+        }
+
+        .history-table td {
+            padding: 0.65rem 1rem;
+            vertical-align: middle;
+            border-color: var(--sh-border);
+        }
+
+    .history-row {
+        cursor: pointer;
+    }
+
+        .history-row:hover td,
+        .history-row.is-expanded td {
+            background: var(--sh-surface-muted);
+        }
+
+    .history-table .mono {
+        font-family: var(--sh-font-mono);
+        font-size: 0.8rem;
+        color: var(--sh-text-muted);
+    }
+
+    .history-has-result {
+        color: var(--sh-success);
+        font-weight: 600;
+    }
+
+    .history-empty {
+        text-align: center;
+        color: var(--sh-text-subtle);
+        padding: 2rem 1rem !important;
+    }
+
+    .history-details-row td {
+        background: var(--sh-surface-muted);
     }
 
     .expanded-details {
-        background-color: #f8f9fa;
-        padding: 10px;
-        border-radius: 4px;
-        margin: 10px 0;
+        padding: 0.25rem 0 0.5rem;
     }
 
-    .expanded-details pre {
-        background-color: #fff;
-        border: 1px solid #dee2e6;
-        padding: 8px;
-        border-radius: 3px;
-        max-height: 200px;
-        overflow-y: auto;
-        font-size: 11px;
-    }
+        .expanded-details .output-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--sh-text-muted);
+            margin-bottom: 0.35rem;
+        }
+
+        .expanded-details .sh-code {
+            background: var(--sh-surface);
+            max-height: 220px;
+        }
 </style>

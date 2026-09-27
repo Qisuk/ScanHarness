@@ -1,9 +1,11 @@
 @using ScanHarness.Models
 
-<div class="feed-item" style="@GetItemStyle()">
+@* User actions sit flush left; the actions they trigger are indented so each
+   request reads as a group of the calls it caused. *@
+<div class="feed-item @StatusStyles.LevelClass(LogEntry.Level) @(IsUser ? "is-user" : "is-triggered")">
     <div class="feed-item-header">
-        <span class="badge" style="@GetBadgeStyle()">@GetLabel()</span>
-        <small class="text-muted" title="@LogEntry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">
+        <span class="badge @StatusStyles.PillClass(LogEntry.Level)">@GetLabel()</span>
+        <small class="feed-item-time" title="@LogEntry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">
             @LogEntry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
         </small>
     </div>
@@ -14,59 +16,72 @@
     [Parameter]
     public LogEntry LogEntry { get; set; } = null!;
 
-    private string GetItemStyle()
-    {
-        var accent = LogEntry.Level switch
-        {
-            LogLevel.Error => "border-left: 4px solid #dc3545; background-color: #fff5f5;",
-            LogLevel.Warning => "border-left: 4px solid #ffc107; background-color: #fffbf0;",
-            LogLevel.Success => "border-left: 4px solid #198754; background-color: #f0fdf4;",
-            LogLevel.User => "border-left: 4px solid #6f42c1; background-color: #f7f2fc;",
-            _ => "border-left: 4px solid #0d6efd; background-color: #f0f7ff;"
-        };
+    private bool IsUser => LogEntry.Level == LogLevel.User;
 
-        // User actions sit flush left; the actions they trigger are indented so each
-        // request reads as a group of the calls it caused.
-        var indent = LogEntry.Level == LogLevel.User ? "margin-left: 0;" : "margin-left: 20px;";
-        return accent + " " + indent;
-    }
-
-    private string GetBadgeStyle()
-    {
-        return LogEntry.Level switch
-        {
-            LogLevel.Error => "background-color: #dc3545;",
-            LogLevel.Warning => "background-color: #ffc107; color: #000;",
-            LogLevel.Success => "background-color: #198754;",
-            LogLevel.User => "background-color: #6f42c1;",
-            _ => "background-color: #0d6efd;"
-        };
-    }
-
-    private string GetLabel() => LogEntry.Level == LogLevel.User ? "You" : LogEntry.Level.ToString();
+    private string GetLabel() => IsUser ? "You" : LogEntry.Level.ToString();
 }
 
 <style>
     .feed-item {
-        padding: 8px;
-        margin-bottom: 8px;
-        border-radius: 3px;
-        transition: all 0.3s ease;
+        position: relative;
+        padding: 0.6rem 0.75rem;
+        margin-bottom: 0.5rem;
+        border: 1px solid var(--sh-border);
+        border-radius: var(--sh-radius-sm);
+        background: var(--sh-surface);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    .feed-item:hover {
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
+        .feed-item:hover {
+            border-color: var(--sh-border-strong);
+            box-shadow: var(--sh-shadow);
+        }
+
+        .feed-item.is-user {
+            margin-left: 0;
+            margin-top: 0.75rem;
+            background: var(--sh-surface-muted);
+        }
+
+        .feed-item.is-triggered {
+            margin-left: 1.25rem;
+        }
+
+            /* A thin connector line ties triggered entries to the request above them. */
+            .feed-item.is-triggered::before {
+                content: "";
+                position: absolute;
+                left: -0.7rem;
+                top: -0.5rem;
+                bottom: 0;
+                border-left: 1px solid var(--sh-border-strong);
+            }
+
+        /* Errors and warnings get a subtle accent so they still stand out. */
+        .feed-item.level-error {
+            border-left: 3px solid var(--sh-danger);
+        }
+
+        .feed-item.level-warning {
+            border-left: 3px solid var(--sh-warning);
+        }
 
     .feed-item-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 4px;
+        margin-bottom: 0.3rem;
+    }
+
+    .feed-item-time {
+        color: var(--sh-text-subtle);
+        font-family: var(--sh-font-mono);
+        font-size: 0.72rem;
     }
 
     .feed-item-message {
-        font-size: 12px;
+        font-size: 0.82rem;
+        color: var(--sh-text);
         word-break: break-word;
     }
 </style>

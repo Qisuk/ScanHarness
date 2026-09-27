@@ -1,23 +1,180 @@
+/* ---------------------------------------------------------------
+   Design tokens: one neutral palette, one accent, soft status tints.
+   Components reference these instead of hard-coded colors.
+   --------------------------------------------------------------- */
+:root {
+    --sh-bg: #f5f7fa;
+    --sh-surface: #ffffff;
+    --sh-surface-muted: #f8fafc;
+    --sh-border: #e4e8ee;
+    --sh-border-strong: #d0d7e2;
+    --sh-text: #1f2937;
+    --sh-text-muted: #6b7280;
+    --sh-text-subtle: #9aa3af;
+
+    --sh-accent: #2563eb;
+    --sh-accent-hover: #1d4ed8;
+    --sh-accent-soft: #eef3fe;
+
+    --sh-success: #15803d;
+    --sh-success-soft: #ecfdf3;
+    --sh-warning: #b45309;
+    --sh-warning-soft: #fff8eb;
+    --sh-danger: #b91c1c;
+    --sh-danger-soft: #fef2f2;
+    --sh-info: #0369a1;
+    --sh-info-soft: #eff8ff;
+    --sh-user: #5b21b6;
+    --sh-user-soft: #f5f3ff;
+    --sh-neutral: #475467;
+    --sh-neutral-soft: #f2f4f7;
+
+    --sh-radius: 8px;
+    --sh-radius-sm: 6px;
+    --sh-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --sh-shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.18);
+
+    --sh-font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --sh-font-mono: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+
+    --bs-body-font-family: var(--sh-font);
+    --bs-body-color: var(--sh-text);
+    --bs-body-bg: var(--sh-bg);
+    --bs-border-color: var(--sh-border);
+}
+
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: var(--sh-font);
+    font-size: 15px;
+    color: var(--sh-text);
+    background: var(--sh-bg);
+    -webkit-font-smoothing: antialiased;
 }
 
 a, .btn-link {
-    color: #006bb7;
+    color: var(--sh-accent);
 }
 
+.btn {
+    border-radius: var(--sh-radius-sm);
+    font-weight: 500;
+}
+
+/* Bootstrap 5.3 drives every button state (hover, focus, active, disabled) from these variables. */
 .btn-primary {
-    color: #fff;
-    background-color: #1b6ec2;
-    border-color: #1861ac;
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--sh-accent);
+    --bs-btn-border-color: var(--sh-accent);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--sh-accent-hover);
+    --bs-btn-hover-border-color: var(--sh-accent-hover);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--sh-accent-hover);
+    --bs-btn-active-border-color: var(--sh-accent-hover);
+    --bs-btn-disabled-color: #fff;
+    --bs-btn-disabled-bg: var(--sh-accent);
+    --bs-btn-disabled-border-color: var(--sh-accent);
+    --bs-btn-disabled-opacity: 0.45;
+}
+
+.btn-outline-secondary {
+    --bs-btn-color: var(--sh-neutral);
+    --bs-btn-bg: var(--sh-surface);
+    --bs-btn-border-color: var(--sh-border-strong);
+    --bs-btn-hover-color: var(--sh-text);
+    --bs-btn-hover-bg: var(--sh-neutral-soft);
+    --bs-btn-hover-border-color: var(--sh-border-strong);
+    --bs-btn-active-color: var(--sh-text);
+    --bs-btn-active-bg: #e7eaef;
+    --bs-btn-active-border-color: var(--sh-border-strong);
+}
+
+.form-control {
+    border-color: var(--sh-border-strong);
+    border-radius: var(--sh-radius-sm);
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+    border-color: var(--sh-accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
+kbd {
+    background: var(--sh-surface);
+    color: var(--sh-neutral);
+    border: 1px solid var(--sh-border-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 0.3rem;
+    font-size: 0.75rem;
+    font-family: var(--sh-font-mono);
+}
+
+/* ---------------------------------------------------------------
+   Shared building blocks used across the harness components.
+   --------------------------------------------------------------- */
+.sh-card {
+    background: var(--sh-surface);
+    border: 1px solid var(--sh-border);
+    border-radius: var(--sh-radius);
+    box-shadow: var(--sh-shadow);
+}
+
+.sh-section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sh-text-muted);
+    margin: 0;
+}
+
+.sh-code {
+    background: var(--sh-surface-muted);
+    border: 1px solid var(--sh-border);
+    border-radius: var(--sh-radius-sm);
+    padding: 0.75rem;
+    font-family: var(--sh-font-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--sh-text);
+    white-space: pre;
+    overflow: auto;
+    margin: 0;
+}
+
+/* Status pills: soft tinted background with a strong foreground and a status dot. */
+.badge.sh-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    background: var(--sh-neutral-soft);
+    color: var(--sh-neutral);
+}
+
+    .badge.sh-pill::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+
+.badge.sh-pill-success { background: var(--sh-success-soft); color: var(--sh-success); }
+.badge.sh-pill-warning { background: var(--sh-warning-soft); color: var(--sh-warning); }
+.badge.sh-pill-danger { background: var(--sh-danger-soft); color: var(--sh-danger); }
+.badge.sh-pill-info { background: var(--sh-info-soft); color: var(--sh-info); }
+.badge.sh-pill-accent { background: var(--sh-accent-soft); color: var(--sh-accent); }
+.badge.sh-pill-user { background: var(--sh-user-soft); color: var(--sh-user); }
+
 .content {
-    padding-top: 1.1rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
 }
 
 h1:focus {
