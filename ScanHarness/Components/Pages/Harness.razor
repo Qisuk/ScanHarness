@@ -168,7 +168,7 @@
     {
         if (BrainSelector.Select(e.Value?.ToString() ?? ""))
         {
-            LogService.LogUser($"Switched brain to {BrainSelector.Current.Name}");
+            LogService.LogUser($"Switched brain to {BrainSelector.Current.Name}", brain: BrainSelector.Current.Name);
         }
     }
 
@@ -244,10 +244,10 @@
 
         try
         {
-            // Log the user's request, then let the agent decide which tool (if any) to call.
-            LogService.LogUser($"Request: {userPrompt}");
-
+            // Log the user's request, then let the agent decide which tool (if any) to call. Every
+            // entry for this request (and the tool call it triggers) records the brain that handled it.
             var brain = BrainSelector.Current;
+            LogService.LogUser($"Request: {userPrompt}", brain: brain.Name);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             isThinking = true;
             ToolDecision decision;
@@ -265,18 +265,18 @@
             if (decision.Error != null)
             {
                 // The brain itself failed (e.g. LLM endpoint down): nothing is called.
-                LogService.LogError($"{brain.Name} failed after {elapsed}: {decision.Error}");
+                LogService.LogError($"Brain failed after {elapsed}: {decision.Error}", brain: brain.Name);
                 return;
             }
 
             if (!decision.ToolFound || decision.Tool == null || decision.Action == null)
             {
                 // No suitable tool: report back to the user without calling anything.
-                LogService.LogWarning($"No tool selected for request: {userPrompt} · {brain.Name} · {elapsed}");
+                LogService.LogWarning($"No tool selected for request: {userPrompt} · {elapsed}", brain: brain.Name);
                 return;
             }
 
-            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {brain.Name} · {elapsed}");
+            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {elapsed}", brain: brain.Name);
 
             // The approval requirement comes from the agent's decision, not the user.
             // The confirmation modal only appears when the chosen tool requires approval.
@@ -284,7 +284,8 @@
                 decision.Tool,
                 decision.Action,
                 decision.Parameters,
-                decision.RequiresApproval
+                decision.RequiresApproval,
+                brain.Name
             );
         }
         finally

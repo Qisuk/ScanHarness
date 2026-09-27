@@ -7,6 +7,7 @@
                 <th>Time</th>
                 <th>Tool</th>
                 <th>Action</th>
+                <th>Brain</th>
                 <th>Status</th>
                 <th class="text-end">Result</th>
             </tr>
@@ -15,7 +16,7 @@
             @if (!ToolCalls.Any())
             {
                 <tr>
-                    <td colspan="5" class="history-empty">No tool calls yet</td>
+                    <td colspan="6" class="history-empty">No tool calls yet</td>
                 </tr>
             }
             else
@@ -27,6 +28,7 @@
                         <td class="mono">@call.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</td>
                         <td>@call.Tool</td>
                         <td>@call.Action</td>
+                        <td class="history-brain">@(call.Brain ?? "—")</td>
                         <td>
                             <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
                         </td>
@@ -40,10 +42,10 @@
                     @if (expandedId == call.Id)
                     {
                         <tr class="history-details-row">
-                            <td colspan="5">
+                            <td colspan="6">
                                 <div class="expanded-details">
                                     <div class="output-label">Parameters</div>
-                                    <pre class="sh-code">@string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}"))</pre>
+                                    <pre class="sh-code">@(call.Parameters.Count == 0 ? "(none)" : string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}")))</pre>
 
                                     @if (!string.IsNullOrEmpty(call.Result))
                                     {
@@ -106,6 +108,12 @@
     .history-table .mono {
         font-family: var(--sh-font-mono);
         font-size: 0.8rem;
+        color: var(--sh-text-muted);
+    }
+
+    .history-brain {
+        font-family: var(--sh-font-mono);
+        font-size: 0.78rem;
         color: var(--sh-text-muted);
     }
 

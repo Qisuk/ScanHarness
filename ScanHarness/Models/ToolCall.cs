@@ -11,6 +11,9 @@ namespace ScanHarness.Models
         public string? Result { get; set; }
         public bool RequiresApproval { get; set; }
         public bool IsApproved { get; set; }
+
+        /// <summary>Name of the agent brain that chose this call, e.g. "llama3.1:8b (LLM)".</summary>
+        public string? Brain { get; set; }
     }
 
     public class LogEntry
@@ -20,6 +23,10 @@ namespace ScanHarness.Models
         public LogLevel Level { get; set; }
         public string Message { get; set; } = string.Empty;
         public string? ToolCallId { get; set; }
+
+        /// <summary>Name of the agent brain handling the request this entry belongs to, if any.</summary>
+        public string? Brain { get; set; }
+
         public Dictionary<string, object>? Data { get; set; }
     }
 

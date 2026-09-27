@@ -10,6 +10,11 @@
         </small>
     </div>
     <div class="feed-item-message">@LogEntry.Message</div>
+    @* Shown on the user's entries only; the entries they trigger are grouped underneath and share the brain. *@
+    @if (IsUser && !string.IsNullOrEmpty(LogEntry.Brain))
+    {
+        <div class="feed-item-brain" title="Brain that handled this request">@LogEntry.Brain</div>
+    }
 </div>
 
 @code {
@@ -77,6 +82,18 @@
         color: var(--sh-text-subtle);
         font-family: var(--sh-font-mono);
         font-size: 0.72rem;
+    }
+
+    .feed-item-brain {
+        display: inline-block;
+        margin-top: 0.35rem;
+        padding: 0.05rem 0.45rem;
+        border: 1px solid var(--sh-border);
+        border-radius: 999px;
+        background: var(--sh-surface);
+        color: var(--sh-text-muted);
+        font-family: var(--sh-font-mono);
+        font-size: 0.68rem;
     }
 
     .feed-item-message {

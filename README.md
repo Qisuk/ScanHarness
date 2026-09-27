@@ -1,18 +1,27 @@
 # ScanHarness
 
-A demo of how an AI assistant calls tools. You ask the agent in plain language to scan or
-(simulated) attack a URL; a pluggable **brain** decides which tool to call, attacks wait for
-your approval, and every call is logged and shown in the UI.
+A demo of how an AI assistant calls tools. You ask the agent in plain language to scan a URL,
+run a (simulated) attack against it, or get a weather forecast; a pluggable **brain** decides
+which tool to call, attacks wait for your approval, and every call is logged and shown in the UI.
 
-The tools are simulations: they return canned responses from `DemoToolAPI_1/dummy_responses.json`
-and never touch the network.
+The tools are simulations and never touch the network: the scanner and attack return canned
+responses from `DemoToolAPI_1/dummy_responses.json`, and the weather forecast is random.
+
+| Tool | API (`DemoToolAPI_1`) | Approval |
+|---|---|---|
+| Scanner (`url`) | `GET /api/tools/simple-scanner` | no |
+| Attack (`url`) | `POST /api/tools/attack` | **yes** |
+| Weather forecast (optional `location`) | `GET /WeatherForecast` | no |
+
+Tools are defined in `ScanHarness/Services/ToolCatalog.cs`; add a tool there and in
+`ToolCallService` and every brain can use it.
 
 ## Projects
 
 | Project | What it is |
 |---|---|
 | `ScanHarness` | Blazor Server UI and the agent: brains, tool calling, approval, logging. |
-| `DemoToolAPI_1` | Simulated tool API (`SimpleScanner`, `Attack`) the harness calls. |
+| `DemoToolAPI_1` | Simulated tool API (scanner, attack, weather forecast) the harness calls. |
 | `ScanHarness.Tests` / `DemoToolAPI_1.Tests` | xUnit unit tests. |
 | `ScanHarness.UITests` | Playwright UI tests (always use the keyword brain). |
 | `ScanHarness.Eval` | Compares brains/models on a fixed prompt set. |
@@ -33,8 +42,16 @@ Pick the brain from the **Brain** menu at the top of the harness page:
   `/v1/chat/completions`). Ollama is the default, but LM Studio, llama.cpp's server, vLLM,
   Docker Model Runner or a hosted API work by changing the base URL.
 
-The model only chooses a tool and a URL. Whether a tool needs approval comes from
-`Services/ToolCatalog.cs`, so an LLM can't skip the attack confirmation.
+The model only chooses a tool and its arguments. Whether a tool needs approval comes from
+`Services/ToolCatalog.cs`, so an LLM can't skip the attack confirmation, and any URL or
+location the user didn't actually type is discarded rather than acted on.
+
+## Logging
+
+Every request, decision, approval and tool call is recorded with the **brain** that handled it:
+shown on your requests in the activity feed, in the History tab's Brain column and in the tool
+output. The audit log (`logs/toolcalls-<date>.log` next to the app binaries) is tab-separated:
+`timestamp  level  tool-call-id  brain  message`, with `-` for empty columns.
 
 ### Local LLM with Docker
 
