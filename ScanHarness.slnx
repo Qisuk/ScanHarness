@@ -5,5 +5,7 @@
   <Project Path="../DemoAPIStub/DemoAPIStub.csproj" />
   <Project Path="../DemoToolAPI_1/DemoToolAPI_1.csproj" />
   <Project Path="../DemoToolAPI_1.Tests/DemoToolAPI_1.Tests.csproj" />
+  <Project Path="../ScanHarness.Tests/ScanHarness.Tests.csproj" />
+  <Project Path="../ScanHarness.UITests/ScanHarness.UITests.csproj" />
   <Project Path="ScanHarness.csproj" />
 </Solution>

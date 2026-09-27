@@ -1,0 +1,311 @@
+@page "/harness"
+@using ScanHarness.Models
+@using ScanHarness.Services
+@inject ToolCallService ToolCallService
+@inject LogService LogService
+@inject IAgentBrain AgentBrain
+@rendermode InteractiveServer
+@implements IDisposable
+
+<div class="harness-container">
+    <div class="row h-100">
+        <!-- Main Content Area -->
+        <div class="col-md-8">
+            <!-- Tabs -->
+            <ul class="nav nav-tabs mb-3">
+                <li class="nav-item">
+                    <a class="nav-link @(activeTab == "main" ? "active" : "")" 
+                       style="cursor: pointer;" @onclick='() => activeTab = "main"'>
+                        Main
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @(activeTab == "history" ? "active" : "")" 
+                       style="cursor: pointer;" @onclick='() => activeTab = "history"'>
+                        History
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Main Tab -->
+            @if (activeTab == "main")
+            {
+                <div class="main-content">
+                    <!-- Input Area (top) -->
+                    <div class="input-area mb-3">
+                        <h5>Ask the agent</h5>
+                        <p class="text-muted small mb-2">
+                            Describe what you want. The agent (<strong>@AgentBrain.Name</strong>) decides which tool to use.
+                            Use <kbd>↑</kbd> / <kbd>↓</kbd> to recall previous prompts.
+                        </p>
+
+                        @if (!string.IsNullOrEmpty(agentMessage))
+                        {
+                            <div class="agent-message mb-2">
+                                <span class="badge bg-secondary">Agent</span> @agentMessage
+                            </div>
+                        }
+
+                        <div class="input-group">
+                            <input type="text" class="form-control form-control-sm"
+                                   @bind="prompt" @bind:event="oninput"
+                                   @onkeydown="HandlePromptKeyDown"
+                                   placeholder="e.g. scan example.com for links, or attack example.com" />
+                            <button class="btn btn-primary" @onclick="SubmitPrompt"
+                                    disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting)">
+                                @(isExecuting ? "Working..." : "Send")
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tool Output Area -->
+                    <div class="output-area">
+                        <h5>Tool Output</h5>
+                        <div class="output-container">
+                            @if (lastToolCall == null)
+                            {
+                                <p class="text-muted">No tool output yet. Ask the agent to run a tool to see results.</p>
+                            }
+                            else
+                            {
+                                <ToolOutputDisplay ToolCall="lastToolCall" />
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- History Tab -->
+            @if (activeTab == "history")
+            {
+                <HistoryTab ToolCalls="ToolCallService.GetToolCalls()" />
+            }
+        </div>
+
+        <!-- Activity Feed -->
+        <div class="col-md-4">
+            <div class="activity-feed">
+                <div class="feed-header d-flex justify-content-between align-items-center">
+                    <h5>Activity Feed</h5>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ClearLogs">Clear</button>
+                </div>
+                <div class="feed-items">
+                    @foreach (var log in recentLogs)
+                    {
+                        <ActivityFeedItem LogEntry="log" />
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    @if (showConfirmation && pendingToolCall != null)
+    {
+        <ConfirmationModal ToolCall="pendingToolCall" 
+                         OnApprove="ApproveToolCall" 
+                         OnReject="RejectToolCall" />
+    }
+</div>
+
+@code {
+    private string activeTab = "main";
+    private string prompt = "";
+    private string agentMessage = "";
+    private bool isExecuting = false;
+    private ToolCall? lastToolCall;
+    private ToolCall? pendingToolCall;
+    private bool showConfirmation = false;
+    private List<LogEntry> recentLogs = new();
+
+    // Terminal-style prompt history. historyIndex == promptHistory.Count means "editing a new prompt".
+    private readonly List<string> promptHistory = new();
+    private int historyIndex = 0;
+
+    protected override void OnInitialized()
+    {
+        ToolCallService.OnToolCallsChanged += OnToolCallsChanged;
+        LogService.OnLogsChanged += OnLogsChanged;
+    }
+
+    private void OnToolCallsChanged()
+    {
+        recentLogs = LogService.GetRecentLogs(50);
+        lastToolCall = ToolCallService.GetToolCalls().LastOrDefault();
+
+        var waitingForApproval = ToolCallService.GetToolCalls()
+            .FirstOrDefault(t => t.Status == ToolCallStatus.WaitingForApproval);
+
+        if (waitingForApproval != null && waitingForApproval != pendingToolCall)
+        {
+            pendingToolCall = waitingForApproval;
+            showConfirmation = true;
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLogsChanged()
+    {
+        recentLogs = LogService.GetRecentLogs(50);
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Terminal-style recall: Up walks to older prompts, Down walks back toward the new/empty prompt.
+    private void HandlePromptKeyDown(KeyboardEventArgs e)
+    {
+        if (promptHistory.Count == 0)
+            return;
+
+        if (e.Key == "ArrowUp")
+        {
+            if (historyIndex > 0)
+            {
+                historyIndex--;
+                prompt = promptHistory[historyIndex];
+            }
+        }
+        else if (e.Key == "ArrowDown")
+        {
+            if (historyIndex < promptHistory.Count - 1)
+            {
+                historyIndex++;
+                prompt = promptHistory[historyIndex];
+            }
+            else
+            {
+                // Past the newest entry: back to an empty, fresh prompt.
+                historyIndex = promptHistory.Count;
+                prompt = "";
+            }
+        }
+    }
+
+    private async Task SubmitPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return;
+
+        isExecuting = true;
+        var userPrompt = prompt.Trim();
+        agentMessage = "";
+
+        // Record in history (skip consecutive duplicates) and clear the input.
+        if (promptHistory.LastOrDefault() != userPrompt)
+        {
+            promptHistory.Add(userPrompt);
+        }
+        historyIndex = promptHistory.Count;
+        prompt = "";
+
+        try
+        {
+            // Log the user's request, then let the agent decide which tool (if any) to call.
+            LogService.LogUser($"Request: {userPrompt}");
+            var decision = await AgentBrain.DecideAsync(userPrompt);
+            agentMessage = decision.Message;
+
+            if (!decision.ToolFound || decision.Tool == null || decision.Action == null)
+            {
+                // No suitable tool: report back to the user without calling anything.
+                LogService.LogWarning($"No tool selected for request: {userPrompt}");
+                return;
+            }
+
+            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action}");
+
+            // The approval requirement comes from the agent's decision, not the user.
+            // The confirmation modal only appears when the chosen tool requires approval.
+            await ToolCallService.ExecuteToolAsync(
+                decision.Tool,
+                decision.Action,
+                decision.Parameters,
+                decision.RequiresApproval
+            );
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    private void ApproveToolCall()
+    {
+        if (pendingToolCall != null)
+        {
+            ToolCallService.ApproveToolCall(pendingToolCall.Id);
+            showConfirmation = false;
+            pendingToolCall = null;
+        }
+    }
+
+    private void RejectToolCall()
+    {
+        if (pendingToolCall != null)
+        {
+            ToolCallService.RejectToolCall(pendingToolCall.Id);
+            showConfirmation = false;
+            pendingToolCall = null;
+        }
+    }
+
+    private void ClearLogs()
+    {
+        LogService.Clear();
+        recentLogs.Clear();
+    }
+
+    void IDisposable.Dispose()
+    {
+        ToolCallService.OnToolCallsChanged -= OnToolCallsChanged;
+        LogService.OnLogsChanged -= OnLogsChanged;
+    }
+}
+
+<style>
+    .harness-container {
+        height: calc(100vh - 100px);
+        padding: 20px;
+    }
+
+    .output-area {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 15px;
+        height: 300px;
+        overflow-y: auto;
+    }
+
+    .output-container {
+        font-family: monospace;
+        font-size: 12px;
+    }
+
+    .input-area {
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 15px;
+    }
+
+    .activity-feed {
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        height: calc(100vh - 200px);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .feed-header {
+        padding: 15px;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .feed-items {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+    }
+</style>

@@ -1,0 +1,96 @@
+using System.Text.RegularExpressions;
+using ScanHarness.Models;
+
+namespace ScanHarness.Services
+{
+    /// <summary>
+    /// Default rule-based brain. Chooses a tool by matching keywords in the user's prompt
+    /// and extracting a target URL. This is a placeholder for an LLM-backed brain: swap in
+    /// another <see cref="IAgentBrain"/> without touching the UI or tool-execution code.
+    /// </summary>
+    public class KeywordAgentBrain : IAgentBrain
+    {
+        public string Name => "Keyword brain (rule-based)";
+
+        private static readonly string[] AttackKeywords =
+            { "attack", "exploit", "hack", "breach", "penetrat", "pwn" };
+
+        private static readonly string[] ScanKeywords =
+            { "scan", "link", "crawl", "spider", "enumerate", "map", "discover" };
+
+        // Matches a full URL, or a bare host like "example.com" / "sub.example.co.uk[/path]".
+        private static readonly Regex UrlRegex = new(
+            @"\b((https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?(\/\S*)?)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public Task<ToolDecision> DecideAsync(string prompt)
+        {
+            var text = (prompt ?? string.Empty).Trim();
+            if (text.Length == 0)
+            {
+                return Task.FromResult(ToolDecision.NoTool(
+                    "Tell me what you'd like to do — for example, \"scan example.com for links\" or \"attack example.com\"."));
+            }
+
+            var lower = text.ToLowerInvariant();
+            var url = ExtractUrl(text);
+
+            var wantsAttack = AttackKeywords.Any(k => lower.Contains(k));
+            var wantsScan = ScanKeywords.Any(k => lower.Contains(k));
+
+            // Attack is the more consequential intent, so it wins if explicitly requested.
+            if (wantsAttack)
+            {
+                if (url == null)
+                {
+                    return Task.FromResult(ToolDecision.NoTool(
+                        "I can run a simulated attack, but I need a target URL. Which URL should I attack?"));
+                }
+
+                return Task.FromResult(new ToolDecision
+                {
+                    ToolFound = true,
+                    Tool = "attack",
+                    Action = "execute",
+                    Parameters = new Dictionary<string, string> { ["url"] = url },
+                    RequiresApproval = true, // Attack always requires confirmation.
+                    Message = $"This looks like an attack request. I'll run a simulated attack against {url} once you approve."
+                });
+            }
+
+            if (wantsScan)
+            {
+                if (url == null)
+                {
+                    return Task.FromResult(ToolDecision.NoTool(
+                        "I can scan a site for links, but I need a target URL. Which URL should I scan?"));
+                }
+
+                return Task.FromResult(new ToolDecision
+                {
+                    ToolFound = true,
+                    Tool = "scanner",
+                    Action = "simple-scanner",
+                    Parameters = new Dictionary<string, string> { ["url"] = url },
+                    RequiresApproval = false,
+                    Message = $"I'll scan {url} for links using the SimpleScanner tool."
+                });
+            }
+
+            return Task.FromResult(ToolDecision.NoTool(
+                "I don't have a suitable tool for that request. I can scan a URL for links, or run a simulated attack against a URL."));
+        }
+
+        private static string? ExtractUrl(string text)
+        {
+            var match = UrlRegex.Match(text);
+            if (!match.Success)
+            {
+                return null;
+            }
+
+            var value = match.Value.TrimEnd('.', ',', ')', ']', '!', '?');
+            return value.Contains("://") ? value : "https://" + value;
+        }
+    }
+}

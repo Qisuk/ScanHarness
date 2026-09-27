@@ -1,0 +1,72 @@
+@using ScanHarness.Models
+
+<div class="feed-item" style="@GetItemStyle()">
+    <div class="feed-item-header">
+        <span class="badge" style="@GetBadgeStyle()">@GetLabel()</span>
+        <small class="text-muted" title="@LogEntry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">
+            @LogEntry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+        </small>
+    </div>
+    <div class="feed-item-message">@LogEntry.Message</div>
+</div>
+
+@code {
+    [Parameter]
+    public LogEntry LogEntry { get; set; } = null!;
+
+    private string GetItemStyle()
+    {
+        var accent = LogEntry.Level switch
+        {
+            LogLevel.Error => "border-left: 4px solid #dc3545; background-color: #fff5f5;",
+            LogLevel.Warning => "border-left: 4px solid #ffc107; background-color: #fffbf0;",
+            LogLevel.Success => "border-left: 4px solid #198754; background-color: #f0fdf4;",
+            LogLevel.User => "border-left: 4px solid #6f42c1; background-color: #f7f2fc;",
+            _ => "border-left: 4px solid #0d6efd; background-color: #f0f7ff;"
+        };
+
+        // User actions sit flush left; the actions they trigger are indented so each
+        // request reads as a group of the calls it caused.
+        var indent = LogEntry.Level == LogLevel.User ? "margin-left: 0;" : "margin-left: 20px;";
+        return accent + " " + indent;
+    }
+
+    private string GetBadgeStyle()
+    {
+        return LogEntry.Level switch
+        {
+            LogLevel.Error => "background-color: #dc3545;",
+            LogLevel.Warning => "background-color: #ffc107; color: #000;",
+            LogLevel.Success => "background-color: #198754;",
+            LogLevel.User => "background-color: #6f42c1;",
+            _ => "background-color: #0d6efd;"
+        };
+    }
+
+    private string GetLabel() => LogEntry.Level == LogLevel.User ? "You" : LogEntry.Level.ToString();
+}
+
+<style>
+    .feed-item {
+        padding: 8px;
+        margin-bottom: 8px;
+        border-radius: 3px;
+        transition: all 0.3s ease;
+    }
+
+    .feed-item:hover {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .feed-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+    }
+
+    .feed-item-message {
+        font-size: 12px;
+        word-break: break-word;
+    }
+</style>
