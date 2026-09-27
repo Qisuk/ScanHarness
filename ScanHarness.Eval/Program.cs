@@ -114,21 +114,31 @@ File.WriteAllText(reportPath, report);
 Console.WriteLine($"Report written to {Path.GetFullPath(reportPath)}");
 return 0;
 
-/// <summary>One prompt with its expected decision. <c>Expect</c> is "scanner", "attack" or "none".</summary>
-record EvalCase(string Prompt, string Expect, string? Url);
+/// <summary>
+/// One prompt with its expected decision. <c>Expect</c> is "scanner", "attack", "weather" or "none".
+/// <c>Url</c> and <c>Location</c> are checked when present; an empty <c>Location</c> means "no location".
+/// </summary>
+record EvalCase(string Prompt, string Expect, string? Url, string? Location)
+{
+    public string Describe() =>
+        Expect + (Url != null ? $" {Url}" : "") + (Location != null ? $" location={(Location == "" ? "(none)" : Location)}" : "");
+}
 
-/// <summary>How one brain handled one case.</summary>
-record CaseOutcome(EvalCase Case, string Actual, string? ActualUrl, bool Correct, bool Errored, TimeSpan Latency)
+/// <summary>How one brain handled one case. <c>ActualArgs</c> summarises the chosen parameters.</summary>
+record CaseOutcome(EvalCase Case, string Actual, string ActualArgs, bool Correct, bool Errored, TimeSpan Latency)
 {
     public static CaseOutcome Score(EvalCase evalCase, ToolDecision decision, TimeSpan latency)
     {
         var actual = decision.Error != null ? "error" : decision.ToolFound ? decision.Tool ?? "?" : "none";
         decision.Parameters.TryGetValue("url", out var url);
+        decision.Parameters.TryGetValue("location", out var location);
 
         var toolCorrect = string.Equals(actual, evalCase.Expect, StringComparison.OrdinalIgnoreCase);
         var urlCorrect = evalCase.Url == null || string.Equals(url?.TrimEnd('/'), evalCase.Url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+        var locationCorrect = evalCase.Location == null || string.Equals(location ?? "", evalCase.Location, StringComparison.OrdinalIgnoreCase);
 
-        return new CaseOutcome(evalCase, actual, url, toolCorrect && urlCorrect, decision.Error != null, latency);
+        var args = string.Join(" ", decision.Parameters.Select(p => p.Key == "url" ? p.Value : $"{p.Key}={p.Value}"));
+        return new CaseOutcome(evalCase, actual, args, toolCorrect && urlCorrect && locationCorrect, decision.Error != null, latency);
     }
 }
 
@@ -187,8 +197,8 @@ static class Report
             sb.AppendLine("|---|---|---|---|---|");
             foreach (var (r, o) in failures)
             {
-                var expected = o.Case.Url == null ? o.Case.Expect : $"{o.Case.Expect} {o.Case.Url}";
-                var got = o.ActualUrl == null ? o.Actual : $"{o.Actual} {o.ActualUrl}";
+                var expected = o.Case.Describe();
+                var got = o.ActualArgs == "" ? o.Actual : $"{o.Actual} {o.ActualArgs}";
                 sb.AppendLine($"| {r.Label} | {r.Mode} | {o.Case.Prompt.Replace("|", "\\|")} | {expected} | {got} |");
             }
         }

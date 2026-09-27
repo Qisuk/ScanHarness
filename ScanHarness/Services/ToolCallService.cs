@@ -19,7 +19,8 @@ namespace ScanHarness.Services
             _logService = logService;
         }
 
-        public async Task<ToolCall> ExecuteToolAsync(string tool, string action, Dictionary<string, string> parameters, bool requiresApproval = false)
+        /// <param name="brain">Name of the agent brain that chose this call; recorded on the call and every log entry.</param>
+        public async Task<ToolCall> ExecuteToolAsync(string tool, string action, Dictionary<string, string> parameters, bool requiresApproval = false, string? brain = null)
         {
             var toolCall = new ToolCall
             {
@@ -27,6 +28,7 @@ namespace ScanHarness.Services
                 Action = action,
                 Parameters = parameters,
                 RequiresApproval = requiresApproval,
+                Brain = brain,
                 Status = requiresApproval ? ToolCallStatus.WaitingForApproval : ToolCallStatus.Running
             };
 
@@ -35,11 +37,11 @@ namespace ScanHarness.Services
                 _toolCalls.Add(toolCall);
             }
 
-            _logService.LogInfo($"Tool call initiated: {tool}/{action}", toolCall.Id);
+            _logService.LogInfo($"Tool call initiated: {tool}/{action}", toolCall.Id, brain: brain);
 
             if (requiresApproval)
             {
-                _logService.LogWarning($"Tool call awaiting user approval: {tool}/{action}", toolCall.Id);
+                _logService.LogWarning($"Tool call awaiting user approval: {tool}/{action}", toolCall.Id, brain: brain);
                 OnToolCallsChanged?.Invoke();
 
                 // Wait for approval
@@ -51,7 +53,7 @@ namespace ScanHarness.Services
                 if (!approved)
                 {
                     toolCall.Status = ToolCallStatus.Cancelled;
-                    _logService.LogError($"Tool call cancelled by user: {tool}/{action}", toolCall.Id);
+                    _logService.LogError($"Tool call cancelled by user: {tool}/{action}", toolCall.Id, brain: brain);
                     OnToolCallsChanged?.Invoke();
                     return toolCall;
                 }
@@ -67,12 +69,12 @@ namespace ScanHarness.Services
 
                 toolCall.Result = JsonSerializer.Serialize(result);
                 toolCall.Status = ToolCallStatus.Completed;
-                _logService.LogSuccess($"Tool call completed: {tool}/{action}", toolCall.Id);
+                _logService.LogSuccess($"Tool call completed: {tool}/{action}", toolCall.Id, brain: brain);
             }
             catch (Exception ex)
             {
                 toolCall.Status = ToolCallStatus.Failed;
-                _logService.LogError($"Tool call failed: {tool}/{action} - {ex.Message}", toolCall.Id);
+                _logService.LogError($"Tool call failed: {tool}/{action} - {ex.Message}", toolCall.Id, brain: brain);
             }
 
             OnToolCallsChanged?.Invoke();
@@ -100,6 +102,13 @@ namespace ScanHarness.Services
                 var content = await response.Content.ReadAsStringAsync();
                 return JsonSerializer.Deserialize<object>(content) ?? new { };
             }
+            else if (tool == "weather" && action == "forecast")
+            {
+                var query = parameters.TryGetValue("location", out var location) ? $"?location={Uri.EscapeDataString(location)}" : "";
+                var response = await _httpClient.GetAsync($"{baseUrl}/WeatherForecast{query}");
+                var content = await response.Content.ReadAsStringAsync();
+                return JsonSerializer.Deserialize<object>(content) ?? new { };
+            }
 
             throw new NotImplementedException($"Tool {tool}/{action} not implemented");
         }
@@ -109,7 +118,7 @@ namespace ScanHarness.Services
             if (_approvalWaiters.ContainsKey(toolCallId))
             {
                 var toolCall = GetToolCall(toolCallId);
-                _logService.LogUser($"Approved tool call: {Describe(toolCall)}", toolCallId);
+                _logService.LogUser($"Approved tool call: {Describe(toolCall)}", toolCallId, brain: toolCall?.Brain);
                 _approvalWaiters[toolCallId].SetResult(true);
                 _approvalWaiters.Remove(toolCallId);
             }
@@ -120,7 +129,7 @@ namespace ScanHarness.Services
             if (_approvalWaiters.ContainsKey(toolCallId))
             {
                 var toolCall = GetToolCall(toolCallId);
-                _logService.LogUser($"Rejected tool call: {Describe(toolCall)}", toolCallId);
+                _logService.LogUser($"Rejected tool call: {Describe(toolCall)}", toolCallId, brain: toolCall?.Brain);
                 _approvalWaiters[toolCallId].SetResult(false);
                 _approvalWaiters.Remove(toolCallId);
             }

@@ -14,9 +14,14 @@
         </div>
     </div>
 
-    @if (ToolCall.Parameters.Any())
+    @if (ToolCall.Parameters.Any() || ToolCall.Brain != null)
     {
         <dl class="output-params">
+            @if (ToolCall.Brain != null)
+            {
+                <dt>brain</dt>
+                <dd>@ToolCall.Brain</dd>
+            }
             @foreach (var param in ToolCall.Parameters)
             {
                 <dt>@param.Key</dt>

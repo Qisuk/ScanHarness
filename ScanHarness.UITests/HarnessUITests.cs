@@ -76,6 +76,32 @@ public class HarnessUITests : PageTest
     }
 
     [Test]
+    public async Task Request_records_the_brain_that_handled_it()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FillAsync("scan example.com for links");
+        await SendButton.ClickAsync();
+
+        var userItem = Page.Locator(".feed-item", new() { HasText = "Request: scan example.com for links" });
+        await Expect(userItem.Locator(".feed-item-brain")).ToHaveTextAsync("Keyword brain (rule-based)", new() { Timeout = 15000 });
+    }
+
+    [Test]
+    public async Task Weather_request_selects_the_weather_tool_without_approval()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FillAsync("what's the weather in London?");
+        await SendButton.ClickAsync();
+
+        var selected = Page.Locator(".feed-item", new() { HasText = "Agent selected tool: weather/forecast" });
+        await Expect(selected).ToBeVisibleAsync(new() { Timeout = 15000 });
+        await Expect(Page.Locator(".agent-message")).ToContainTextAsync("weather forecast for London");
+        await Expect(Page.Locator(".confirmation-modal")).ToHaveCountAsync(0);
+    }
+
+    [Test]
     public async Task Attack_request_prompts_for_approval_and_logs_the_decision()
     {
         await GotoHarnessAsync();

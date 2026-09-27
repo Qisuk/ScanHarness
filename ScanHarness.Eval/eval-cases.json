@@ -16,7 +16,10 @@
   { "prompt": "scan a website for me", "expect": "none" },
   { "prompt": "launch an attack", "expect": "none" },
 
-  { "prompt": "what's the weather in London?", "expect": "none" },
+  { "prompt": "what's the weather in London?", "expect": "weather", "location": "London" },
+  { "prompt": "Will it be warm in New York this week?", "expect": "weather", "location": "New York" },
+  { "prompt": "give me the forecast", "expect": "weather", "location": "" },
+  { "prompt": "scan weather.example.com for links", "expect": "scanner", "url": "https://weather.example.com" },
   { "prompt": "write me a short poem about cats", "expect": "none" },
   { "prompt": "check the SSL certificate of example.com", "expect": "none" },
   { "prompt": "send an email to admin@example.com", "expect": "none" }

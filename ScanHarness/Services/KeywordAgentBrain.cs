@@ -18,6 +18,14 @@ namespace ScanHarness.Services
         private static readonly string[] ScanKeywords =
             { "scan", "link", "crawl", "spider", "enumerate", "map", "discover" };
 
+        private static readonly string[] WeatherKeywords =
+            { "weather", "forecast", "temperature" };
+
+        // A capitalised place name after "in", "for" or "at", e.g. "weather in New York".
+        private static readonly Regex LocationRegex = new(
+            @"\b(?:in|for|at)\s+(\p{Lu}[\p{L}'-]*(?:\s+\p{Lu}[\p{L}'-]*)*)",
+            RegexOptions.Compiled);
+
         // Matches a full URL, or a bare host like "example.com" / "sub.example.co.uk[/path]".
         private static readonly Regex UrlRegex = new(
             @"\b((https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?(\/\S*)?)\b",
@@ -29,7 +37,8 @@ namespace ScanHarness.Services
             if (text.Length == 0)
             {
                 return Task.FromResult(ToolDecision.NoTool(
-                    "Tell me what you'd like to do — for example, \"scan example.com for links\" or \"attack example.com\"."));
+                    "Tell me what you'd like to do — for example, \"scan example.com for links\", \"attack example.com\" " +
+                    "or \"what's the weather in London?\"."));
             }
 
             var lower = text.ToLowerInvariant();
@@ -77,8 +86,31 @@ namespace ScanHarness.Services
                 });
             }
 
+            if (WeatherKeywords.Any(k => lower.Contains(k)))
+            {
+                // Location is optional: without one the tool still returns a forecast.
+                var parameters = new Dictionary<string, string>();
+                var location = LocationRegex.Match(text);
+                if (location.Success)
+                {
+                    parameters["location"] = location.Groups[1].Value;
+                }
+
+                var weather = ToolCatalog.FindByTool("weather")!;
+                return Task.FromResult(new ToolDecision
+                {
+                    ToolFound = true,
+                    Tool = weather.Tool,
+                    Action = weather.Action,
+                    Parameters = parameters,
+                    RequiresApproval = weather.RequiresApproval,
+                    Message = weather.FormatConfirmation(parameters)
+                });
+            }
+
             return Task.FromResult(ToolDecision.NoTool(
-                "I don't have a suitable tool for that request. I can scan a URL for links, or run a simulated attack against a URL."));
+                "I don't have a suitable tool for that request. I can scan a URL for links, run a simulated attack " +
+                "against a URL, or get a weather forecast."));
         }
 
         private static string? ExtractUrl(string text)

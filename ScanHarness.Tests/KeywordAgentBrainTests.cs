@@ -59,8 +59,42 @@ namespace ScanHarness.Tests
         }
 
         [Theory]
-        [InlineData("what's the weather today?")]
+        [InlineData("what's the weather in London?", "London")]
+        [InlineData("Give me the forecast for New York", "New York")]
+        [InlineData("temperature at Zürich tomorrow", "Zürich")]
+        public async Task Weather_requests_select_the_weather_tool_with_the_location(string prompt, string location)
+        {
+            var decision = await _brain.DecideAsync(prompt);
+
+            Assert.True(decision.ToolFound);
+            Assert.Equal("weather", decision.Tool);
+            Assert.Equal("forecast", decision.Action);
+            Assert.False(decision.RequiresApproval);
+            Assert.Equal(location, decision.Parameters["location"]);
+            Assert.Contains(location, decision.Message);
+        }
+
+        [Fact]
+        public async Task Weather_request_without_a_location_still_selects_the_weather_tool()
+        {
+            var decision = await _brain.DecideAsync("what's the weather today?");
+
+            Assert.True(decision.ToolFound);
+            Assert.Equal("weather", decision.Tool);
+            Assert.Empty(decision.Parameters);
+        }
+
+        [Fact]
+        public async Task Scan_wins_over_weather_when_a_site_is_named()
+        {
+            var decision = await _brain.DecideAsync("scan weather.com for links");
+
+            Assert.Equal("scanner", decision.Tool);
+        }
+
+        [Theory]
         [InlineData("tell me a joke")]
+        [InlineData("count to ten")]
         [InlineData("")]
         public async Task Unrelated_or_empty_prompts_select_no_tool(string prompt)
         {

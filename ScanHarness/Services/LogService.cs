@@ -23,30 +23,31 @@ namespace ScanHarness.Services
             _logFilePath = Path.Combine(logDirectory, $"toolcalls-{DateTime.UtcNow:yyyy-MM-dd}.log");
         }
 
-        public void LogInfo(string message, string? toolCallId = null, Dictionary<string, object>? data = null)
-            => Add(LogLevel.Info, message, toolCallId, data);
+        public void LogInfo(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Info, message, toolCallId, data, brain);
 
-        public void LogWarning(string message, string? toolCallId = null, Dictionary<string, object>? data = null)
-            => Add(LogLevel.Warning, message, toolCallId, data);
+        public void LogWarning(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Warning, message, toolCallId, data, brain);
 
-        public void LogError(string message, string? toolCallId = null, Dictionary<string, object>? data = null)
-            => Add(LogLevel.Error, message, toolCallId, data);
+        public void LogError(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Error, message, toolCallId, data, brain);
 
-        public void LogSuccess(string message, string? toolCallId = null, Dictionary<string, object>? data = null)
-            => Add(LogLevel.Success, message, toolCallId, data);
+        public void LogSuccess(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Success, message, toolCallId, data, brain);
 
         /// <summary>Logs an action taken by the user (a request or an approval decision).</summary>
-        public void LogUser(string message, string? toolCallId = null, Dictionary<string, object>? data = null)
-            => Add(LogLevel.User, message, toolCallId, data);
+        public void LogUser(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.User, message, toolCallId, data, brain);
 
-        private void Add(LogLevel level, string message, string? toolCallId, Dictionary<string, object>? data)
+        private void Add(LogLevel level, string message, string? toolCallId, Dictionary<string, object>? data, string? brain)
         {
             var entry = new LogEntry
             {
                 Level = level,
                 Message = message,
                 ToolCallId = toolCallId,
-                Data = data
+                Data = data,
+                Brain = brain
             };
 
             lock (_lockObject)
@@ -60,8 +61,10 @@ namespace ScanHarness.Services
 
         private void WriteToFile(LogEntry entry)
         {
+            // Tab-separated: timestamp, level, tool call id, brain, message ("-" for empty columns).
             var toolCallPart = string.IsNullOrEmpty(entry.ToolCallId) ? "-" : entry.ToolCallId;
-            var line = $"{entry.Timestamp:O}\t{entry.Level}\t{toolCallPart}\t{entry.Message}";
+            var brainPart = string.IsNullOrEmpty(entry.Brain) ? "-" : entry.Brain;
+            var line = $"{entry.Timestamp:O}\t{entry.Level}\t{toolCallPart}\t{brainPart}\t{entry.Message}";
 
             try
             {

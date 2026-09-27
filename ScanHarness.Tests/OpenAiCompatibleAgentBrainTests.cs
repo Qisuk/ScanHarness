@@ -88,7 +88,7 @@ namespace ScanHarness.Tests
         {
             var brain = BrainFor(FakeHttpMessageHandler.Returning(ContentResponse("I can only scan or attack URLs.")));
 
-            var decision = await brain.DecideAsync("what's the weather?");
+            var decision = await brain.DecideAsync("tell me a joke");
 
             Assert.False(decision.ToolFound);
             Assert.Null(decision.Error);
@@ -158,6 +158,75 @@ namespace ScanHarness.Tests
             var decision = await brain.DecideAsync(prompt);
 
             Assert.True(decision.ToolFound);
+        }
+
+        [Fact]
+        public async Task Weather_tool_call_becomes_a_weather_decision_with_the_location()
+        {
+            var brain = BrainFor(FakeHttpMessageHandler.Returning(ToolCallResponse("weather_forecast", "{\"location\":\"London\"}")));
+
+            var decision = await brain.DecideAsync("what's the weather like in london?");
+
+            Assert.True(decision.ToolFound);
+            Assert.Equal("weather", decision.Tool);
+            Assert.Equal("forecast", decision.Action);
+            Assert.False(decision.RequiresApproval);
+            Assert.Equal("London", decision.Parameters["location"]);
+            Assert.Equal("I'll get the weather forecast for London.", decision.Message);
+        }
+
+        [Fact]
+        public async Task Location_the_user_never_named_is_dropped_but_the_forecast_still_runs()
+        {
+            // The model invents a location for a question that didn't mention one.
+            var brain = BrainFor(FakeHttpMessageHandler.Returning(ToolCallResponse("weather_forecast", "{\"location\":\"Paris\"}")));
+
+            var decision = await brain.DecideAsync("what's the weather going to be?");
+
+            Assert.True(decision.ToolFound);
+            Assert.Equal("weather", decision.Tool);
+            Assert.Empty(decision.Parameters);
+            Assert.Equal("I'll get the weather forecast.", decision.Message);
+        }
+
+        [Fact]
+        public async Task Json_schema_mode_parses_a_weather_decision()
+        {
+            var content = "{\"tool\":\"weather_forecast\",\"url\":null,\"location\":\"New York\",\"message\":\"ok\"}";
+            var brain = BrainFor(FakeHttpMessageHandler.Returning(ContentResponse(content)), LlmDecisionMode.JsonSchema);
+
+            var decision = await brain.DecideAsync("forecast for New York please");
+
+            Assert.True(decision.ToolFound);
+            Assert.Equal("weather", decision.Tool);
+            Assert.Equal("New York", decision.Parameters["location"]);
+            Assert.False(decision.Parameters.ContainsKey("url"));
+        }
+
+        [Fact]
+        public async Task Json_schema_includes_every_tool_parameter_as_nullable()
+        {
+            var handler = FakeHttpMessageHandler.Returning(ContentResponse("{\"tool\":\"none\",\"url\":null,\"location\":null,\"message\":\"hi\"}"));
+            await BrainFor(handler, LlmDecisionMode.JsonSchema).DecideAsync("hello");
+
+            var schema = JsonNode.Parse(handler.Requests[0].Body)!["response_format"]!["json_schema"]!["schema"]!;
+            var required = schema["required"]!.AsArray().Select(n => n!.GetValue<string>());
+
+            Assert.Equal(new[] { "tool", "url", "location", "message" }, required);
+            Assert.Contains("weather_forecast", schema["properties"]!["tool"]!["enum"]!.AsArray().Select(n => n!.GetValue<string>()));
+        }
+
+        [Fact]
+        public async Task Tool_schema_marks_only_required_parameters_as_required()
+        {
+            var handler = FakeHttpMessageHandler.Returning(ContentResponse("ok"));
+            await BrainFor(handler).DecideAsync("weather?");
+
+            var tools = JsonNode.Parse(handler.Requests[0].Body)!["tools"]!.AsArray();
+            var weather = tools.Single(t => t!["function"]!["name"]!.GetValue<string>() == "weather_forecast")!["function"]!["parameters"]!;
+
+            Assert.NotNull(weather["properties"]!["location"]);
+            Assert.Empty(weather["required"]!.AsArray());
         }
 
         [Fact]
@@ -240,7 +309,7 @@ namespace ScanHarness.Tests
             Assert.Equal(Model, json["model"]!.GetValue<string>());
             Assert.Equal(0, json["temperature"]!.GetValue<double>());
             var toolNames = json["tools"]!.AsArray().Select(t => t!["function"]!["name"]!.GetValue<string>());
-            Assert.Equal(new[] { "simple_scanner", "attack" }, toolNames);
+            Assert.Equal(new[] { "simple_scanner", "attack", "weather_forecast" }, toolNames);
             Assert.Equal("scan example.com", json["messages"]![1]!["content"]!.GetValue<string>());
         }
 
