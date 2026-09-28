@@ -33,6 +33,20 @@ Tools are defined in `ScanHarness/Services/ToolCatalog.cs`; add a tool there and
 
 Or open `ScanHarness/ScanHarness.slnx` in Visual Studio and start both projects.
 
+## Chat and tool output
+
+The **Main** tab is a chat with the agent. Your questions appear on the right and the agent's
+replies on the left. Each reply shows the brain's decision, the tool it ran with that call's status,
+and the summary of the result, and the chat stays scrolled to the newest message.
+
+The **Tool output** pane below shows the latest tool call. Select any reply that ran a tool (click
+it, or focus it and press Enter or Space) to show that request's output instead. The pane's
+border then reads *selected request*, with **Show latest** to go back. The next request switches
+back to the latest call automatically.
+
+The chat is built from the session's logged entries and tool calls (`Services/ChatTranscript.cs`),
+so a reopened session shows the same conversation.
+
 ## Agent brains
 
 A brain has two jobs, each picked from its own menu at the top of the harness page:

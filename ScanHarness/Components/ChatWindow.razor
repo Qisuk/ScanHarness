@@ -1,0 +1,352 @@
+@using ScanHarness.Models
+@using ScanHarness.Services
+
+@* The conversation: the user's questions on the right, the agent's replies on the left. A reply that
+   led to a tool call can be selected to show that call's output in the tool output pane. *@
+<div class="chat-scroll">
+    @* column-reverse keeps the view pinned to the newest message as turns are added, without script. *@
+    <div class="chat-log" role="log" aria-live="polite" aria-label="Conversation with the agent">
+        @if (Turns.Count == 0 && !IsSummarizingSession)
+        {
+            <div class="chat-empty">Ask the agent to scan a site, run a simulated attack or get the weather.</div>
+        }
+
+        @for (var i = 0; i < Turns.Count; i++)
+        {
+            var turn = Turns[i];
+            var isLast = i == Turns.Count - 1;
+
+            @if (turn.Kind == ChatTurnKind.Request)
+            {
+                <div class="chat-row from-user">
+                    <div class="chat-bubble user-bubble">
+                        <div class="chat-meta">
+                            <span class="chat-who">@(ShowUsers && turn.UserName != null ? turn.UserName : "You")</span>
+                            <span class="chat-time">@turn.RequestedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                        </div>
+                        <div class="chat-text">@turn.Prompt</div>
+                    </div>
+                </div>
+            }
+
+            var selectable = turn.ToolCall != null;
+            var selected = selectable && turn.ToolCall!.Id == SelectedToolCallId;
+
+            <div class="chat-row from-agent">
+                <div class="chat-bubble agent-bubble @(selectable ? "is-selectable" : "") @(selected ? "is-selected" : "") @(turn.Kind == ChatTurnKind.SessionSummary ? "is-session-summary" : "")"
+                     role="@(selectable ? "button" : null)"
+                     tabindex="@(selectable ? "0" : null)"
+                     aria-pressed="@(selectable ? selected.ToString().ToLowerInvariant() : null)"
+                     aria-label="@(selectable ? $"Show tool output for: {turn.Prompt}" : null)"
+                     title="@(selectable ? "Show this request's tool output below" : null)"
+                     @onclick="() => SelectAsync(turn)"
+                     @onkeydown="e => OnKeyDownAsync(e, turn)">
+                    <div class="chat-meta">
+                        <span class="chat-who">@(turn.Kind == ChatTurnKind.SessionSummary ? "Session summary" : "Agent")</span>
+                        @if (turn.Brain != null)
+                        {
+                            <span class="chat-brain">@turn.Brain</span>
+                        }
+                        @if (turn.RepliedAt is DateTime replied)
+                        {
+                            <span class="chat-time">@replied.ToLocalTime().ToString("HH:mm:ss")</span>
+                        }
+                    </div>
+
+                    @if (turn.AgentMessage != null)
+                    {
+                        @if (turn.Kind == ChatTurnKind.SessionSummary)
+                        {
+                            @foreach (var paragraph in turn.AgentMessage.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                <p class="chat-text chat-paragraph">@paragraph</p>
+                            }
+                        }
+                        else
+                        {
+                            <div class="agent-message chat-text">@turn.AgentMessage</div>
+                        }
+                    }
+                    else if (isLast && IsThinking)
+                    {
+                        <div class="chat-typing">Thinking<span class="chat-dots"><span></span><span></span><span></span></span></div>
+                    }
+
+                    @if (turn.Error != null)
+                    {
+                        <div class="chat-error">@turn.Error</div>
+                    }
+
+                    @if (turn.ToolCall is ToolCall call)
+                    {
+                        <div class="chat-tool">
+                            <span class="chat-tool-name">@call.Tool/@call.Action</span>
+                            <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
+                            <span class="chat-tool-hint">@(selected ? "Output shown below" : "Select to show output")</span>
+                        </div>
+                    }
+
+                    @if (turn.Summary != null)
+                    {
+                        <div class="agent-summary chat-summary">
+                            <span class="chat-summary-label">Summary</span>
+                            <span>@turn.Summary</span>
+                        </div>
+                    }
+                    else if (isLast && IsSummarizing && turn.ToolCall != null)
+                    {
+                        <div class="chat-typing">Summarising<span class="chat-dots"><span></span><span></span><span></span></span></div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (IsSummarizingSession)
+        {
+            <div class="chat-row from-agent">
+                <div class="chat-bubble agent-bubble is-session-summary">
+                    <div class="chat-meta"><span class="chat-who">Session summary</span></div>
+                    <div class="chat-typing">Summarising the session<span class="chat-dots"><span></span><span></span><span></span></span></div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The conversation, oldest first.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ChatTurn> Turns { get; set; } = Array.Empty<ChatTurn>();
+
+    /// <summary>Id of the tool call shown in the output pane; its reply is highlighted.</summary>
+    [Parameter]
+    public string? SelectedToolCallId { get; set; }
+
+    /// <summary>Raised when the user selects a reply that led to a tool call.</summary>
+    [Parameter]
+    public EventCallback<ToolCall> OnSelectToolCall { get; set; }
+
+    /// <summary>The brain is deciding on the last request.</summary>
+    [Parameter]
+    public bool IsThinking { get; set; }
+
+    /// <summary>The brain is summarising the last request's tool call.</summary>
+    [Parameter]
+    public bool IsSummarizing { get; set; }
+
+    /// <summary>A session summary is being written.</summary>
+    [Parameter]
+    public bool IsSummarizingSession { get; set; }
+
+    /// <summary>Name the user on each question (the admin view) instead of "You".</summary>
+    [Parameter]
+    public bool ShowUsers { get; set; }
+
+    private Task SelectAsync(ChatTurn turn) =>
+        turn.ToolCall != null ? OnSelectToolCall.InvokeAsync(turn.ToolCall) : Task.CompletedTask;
+
+    private Task OnKeyDownAsync(KeyboardEventArgs e, ChatTurn turn) =>
+        e.Key is "Enter" or " " ? SelectAsync(turn) : Task.CompletedTask;
+}
+
+<style>
+    /* The chat log fills the space above the input and scrolls, staying pinned to the newest message. */
+    .chat-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column-reverse;
+        margin: 0 -0.35rem;
+        padding: 0 0.35rem;
+    }
+
+    .chat-log {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        padding: 0.2rem 0;
+    }
+
+    .chat-empty {
+        padding: 1rem;
+        text-align: center;
+        color: var(--sh-text-subtle);
+        font-size: 0.82rem;
+        border: 1px dashed var(--sh-border-strong);
+        border-radius: var(--sh-radius-sm);
+    }
+
+    .chat-row {
+        display: flex;
+    }
+
+        .chat-row.from-user {
+            justify-content: flex-end;
+        }
+
+        .chat-row.from-agent {
+            justify-content: flex-start;
+        }
+
+    .chat-bubble {
+        max-width: min(46rem, 85%);
+        padding: 0.4rem 0.65rem 0.5rem;
+        border: 1px solid var(--sh-border-strong);
+        border-radius: 10px;
+        font-size: 0.87rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .user-bubble {
+        background: var(--sh-accent-soft);
+        border-color: color-mix(in srgb, var(--sh-accent) 35%, var(--sh-border-strong));
+        border-bottom-right-radius: 3px;
+    }
+
+    .agent-bubble {
+        background: var(--sh-surface-muted);
+        border-bottom-left-radius: 3px;
+    }
+
+        .agent-bubble.is-session-summary {
+            border-color: var(--sh-success-border);
+        }
+
+        .agent-bubble.is-selectable {
+            cursor: pointer;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+            .agent-bubble.is-selectable:hover {
+                border-color: var(--sh-accent);
+            }
+
+            .agent-bubble.is-selectable:focus-visible {
+                outline: none;
+                box-shadow: 0 0 0 3px var(--sh-focus-ring);
+            }
+
+        .agent-bubble.is-selected {
+            border-color: var(--sh-accent);
+            box-shadow: inset 3px 0 0 var(--sh-accent);
+        }
+
+    .chat-meta {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-bottom: 0.15rem;
+        font-size: 0.7rem;
+        color: var(--sh-text-subtle);
+    }
+
+    .chat-who {
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sh-text-muted);
+    }
+
+    .chat-brain,
+    .chat-time {
+        font-family: var(--sh-font-mono);
+    }
+
+    .chat-time {
+        margin-left: auto;
+    }
+
+    .chat-paragraph {
+        margin: 0 0 0.4rem;
+    }
+
+        .chat-paragraph:last-child {
+            margin-bottom: 0;
+        }
+
+    .chat-error {
+        margin-top: 0.3rem;
+        color: var(--sh-danger);
+        font-size: 0.8rem;
+    }
+
+    .chat-tool {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.35rem;
+        font-size: 0.75rem;
+    }
+
+    .chat-tool-name {
+        font-family: var(--sh-font-mono);
+        font-weight: 600;
+    }
+
+    .chat-tool-hint {
+        color: var(--sh-text-subtle);
+    }
+
+    .agent-bubble.is-selected .chat-tool-hint {
+        color: var(--sh-accent);
+    }
+
+    .chat-summary {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin-top: 0.4rem;
+        padding: 0.35rem 0.5rem;
+        border-left: 3px solid var(--sh-success);
+        border-radius: 4px;
+        background: var(--sh-success-soft);
+        font-size: 0.83rem;
+    }
+
+    .chat-summary-label {
+        flex: none;
+        font-size: 0.64rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sh-success);
+    }
+
+    .chat-typing {
+        color: var(--sh-text-muted);
+        font-size: 0.82rem;
+        font-style: italic;
+    }
+
+    .chat-dots {
+        display: inline-flex;
+        gap: 2px;
+        margin-left: 3px;
+    }
+
+        .chat-dots span {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: chat-dot 1.2s infinite ease-in-out;
+        }
+
+            .chat-dots span:nth-child(2) { animation-delay: 0.2s; }
+            .chat-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @@keyframes chat-dot {
+        0%, 80%, 100% { opacity: 0.25; }
+        40% { opacity: 1; }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .chat-dots span {
+            animation: none;
+            opacity: 0.6;
+        }
+    }
+</style>

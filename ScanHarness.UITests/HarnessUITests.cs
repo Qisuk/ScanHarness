@@ -155,13 +155,14 @@ public class HarnessUITests : PageTest
     {
         await GotoHarnessAsync();
 
-        foreach (var request in new[] { "what's the weather in London?", "scan example.com for links" })
+        var requests = new[] { "what's the weather in London?", "scan example.com for links" };
+        for (var i = 0; i < requests.Length; i++)
         {
-            await PromptInput.FillAsync(request);
+            await PromptInput.FillAsync(requests[i]);
             await SendButton.ClickAsync();
-            // Wait for the action's own summary so the call has finished before the next one.
-            await Expect(Page.Locator(".agent-summary")).ToContainTextAsync("The user asked me to", new() { Timeout = 20000 });
-            await Expect(SendButton).ToBeDisabledAsync(); // input cleared
+            // Each reply in the chat gets its summary; wait for this one so the call has finished before the next.
+            await Expect(Page.Locator(".agent-summary")).ToHaveCountAsync(i + 1, new() { Timeout = 20000 });
+            await Expect(Page.Locator(".status-state")).ToHaveTextAsync("Ready", new() { Timeout = 20000 });
         }
 
         await SummariseSessionButton.ClickAsync();
@@ -178,15 +179,102 @@ public class HarnessUITests : PageTest
         await Expect(Page.Locator(".feed-item", new() { HasText = "Session summary (" })).ToBeVisibleAsync();
     }
 
+    // --- Chat window ---
+
+    private ILocator UserBubbles => Page.Locator(".chat-row.from-user .chat-bubble");
+    private ILocator AgentBubbles => Page.Locator(".chat-row.from-agent .chat-bubble");
+
+    [Test]
+    public async Task Question_and_reply_appear_as_chat_bubbles_with_the_summary()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("what's the weather in Madrid?");
+
+        await Expect(UserBubbles).ToHaveCountAsync(1);
+        await Expect(UserBubbles.First).ToContainTextAsync("what's the weather in Madrid?");
+        await Expect(UserBubbles.First).ToContainTextAsync("You");
+
+        var reply = AgentBubbles.First;
+        await Expect(reply.Locator(".agent-message")).ToHaveTextAsync("I'll get the weather forecast for Madrid.");
+        await Expect(reply.Locator(".chat-tool")).ToContainTextAsync("weather/forecast");
+        await Expect(reply.Locator(".agent-summary")).ToContainTextAsync("The user asked me to get the weather forecast for Madrid.");
+    }
+
+    [Test]
+    public async Task Reply_without_a_tool_is_not_selectable()
+    {
+        await GotoHarnessAsync();
+        await PromptInput.FillAsync("tell me a joke");
+        await SendButton.ClickAsync();
+
+        var reply = AgentBubbles.First;
+        await Expect(reply.Locator(".agent-message")).ToContainTextAsync("I don't have a suitable tool", new() { Timeout = 15000 });
+        await Expect(reply).Not.ToHaveAttributeAsync("role", "button");
+    }
+
+    [Test]
+    public async Task Selecting_an_earlier_reply_shows_its_tool_output_below()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("what's the weather in Rome?");
+        await SendAndWaitAsync("scan example.com for links");
+
+        var output = Page.Locator(".output-area");
+        await Expect(output.Locator(".output-tool")).ToContainTextAsync("scanner"); // latest by default
+        await Expect(AgentBubbles.Nth(1)).ToHaveClassAsync(new Regex("is-selected"));
+
+        await AgentBubbles.Nth(0).ClickAsync();
+        await Expect(output.Locator(".output-tool")).ToContainTextAsync("weather");
+        await Expect(output).ToContainTextAsync("location");
+        await Expect(AgentBubbles.Nth(0)).ToHaveClassAsync(new Regex("is-selected"));
+        await Expect(AgentBubbles.Nth(1)).Not.ToHaveClassAsync(new Regex("is-selected"));
+
+        // "Show latest" goes back to following the newest call.
+        await output.GetByRole(AriaRole.Button, new() { Name = "Show latest" }).ClickAsync();
+        await Expect(output.Locator(".output-tool")).ToContainTextAsync("scanner");
+    }
+
+    [Test]
+    public async Task Replies_can_be_selected_with_the_keyboard()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("what's the weather in Vienna?");
+        await SendAndWaitAsync("scan example.com for links");
+
+        await AgentBubbles.Nth(0).FocusAsync();
+        await Page.Keyboard.PressAsync("Enter");
+
+        await Expect(Page.Locator(".output-area .output-tool")).ToContainTextAsync("weather");
+        await Expect(AgentBubbles.Nth(0)).ToHaveAttributeAsync("aria-pressed", "true");
+    }
+
+    [Test]
+    public async Task A_new_request_switches_the_output_back_to_the_latest_call()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("what's the weather in Athens?");
+        await SendAndWaitAsync("scan example.com for links");
+        await AgentBubbles.Nth(0).ClickAsync();
+        await Expect(Page.Locator(".output-area .output-tool")).ToContainTextAsync("weather");
+
+        await SendAndWaitAsync("scan example.org for links");
+
+        await Expect(Page.Locator(".output-area")).ToContainTextAsync("https://example.org");
+        await Expect(AgentBubbles.Nth(2)).ToHaveClassAsync(new Regex("is-selected"));
+    }
+
     // --- Users, sessions and persistence ---
 
     private ILocator SessionSelect => Page.Locator("#session-select");
 
+    // Sends a request and waits until it has been fully handled (decided, run and summarised).
     private async Task SendAndWaitAsync(string request)
     {
+        var questionsBefore = await UserBubbles.CountAsync();
         await PromptInput.FillAsync(request);
         await SendButton.ClickAsync();
-        await Expect(Page.Locator(".agent-summary, .agent-message")).Not.ToHaveCountAsync(0, new() { Timeout = 20000 });
+        // The new question appearing proves the click was handled, so "Ready" below is this request's.
+        await Expect(UserBubbles).ToHaveCountAsync(questionsBefore + 1, new() { Timeout = 20000 });
         await Expect(Page.Locator(".status-state")).ToHaveTextAsync("Ready", new() { Timeout = 20000 });
     }
 
