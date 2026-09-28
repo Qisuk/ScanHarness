@@ -49,6 +49,17 @@ builds its summary from the tool's response with fixed rules; an LLM brain write
 the same response, is told to use only facts in it, and falls back to the rule-based summary
 (logging why) if the model fails.
 
+**Summarise session** (next to the tabs) opens the **Session** tab with a report on everything
+done so far:
+
+- **Tools called**: every tool call in order, with its time, parameters, status and brain. It's
+  built directly from the calls, so the same session always gives the same list.
+- **Session summary**: a summary of all the per-action summaries, written by the brain selected
+  in the **Summary** menu and capped at 500 words (enforced in code, whatever the brain returns).
+  LLM brains fall back to the rule-based summary if the model fails.
+
+Both are also logged.
+
 Available brains:
 
 - **Keyword brain**: rule-based, instant, always available. Used as the fallback.

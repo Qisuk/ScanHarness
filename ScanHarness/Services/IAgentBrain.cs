@@ -22,5 +22,12 @@ namespace ScanHarness.Services
         /// <param name="prompt">The user's original request.</param>
         /// <param name="toolCall">The finished call, including its status and the tool's response.</param>
         Task<ActionSummary> SummarizeAsync(string prompt, ToolCall toolCall);
+
+        /// <summary>
+        /// Summarise a whole session from its per-action summaries, in at most
+        /// <see cref="SessionReportBuilder.MaxSummaryWords"/> words.
+        /// </summary>
+        /// <param name="toolCalls">Every tool call in the session, with their summaries.</param>
+        Task<ActionSummary> SummarizeSessionAsync(IReadOnlyList<ToolCall> toolCalls);
     }
 }

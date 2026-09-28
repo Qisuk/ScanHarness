@@ -1,0 +1,154 @@
+@using ScanHarness.Models
+@using ScanHarness.Services
+
+@* The session report: the summary brain's summary of summaries, and the deterministic tool-call list. *@
+<div class="session-summary sh-box sh-box-success">
+    <span class="sh-box-title">Session summary</span>
+    @if (Report != null)
+    {
+        <span class="sh-box-aside">
+            @Report.SummaryBrain · @Report.SummaryWordCount words · @Report.CreatedAt.ToLocalTime().ToString("HH:mm:ss")
+        </span>
+    }
+
+    @if (IsGenerating)
+    {
+        <div class="empty-state">Summarising the session…</div>
+    }
+    else if (Report == null)
+    {
+        <div class="empty-state">Press <strong>Summarise session</strong> to summarise every action in this session.</div>
+    }
+    else
+    {
+        @foreach (var paragraph in Report.Summary.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            <p class="session-summary-text">@paragraph</p>
+        }
+        @if (Report.FallbackReason != null)
+        {
+            <p class="session-summary-note">The summary brain couldn't write this (@Report.FallbackReason), so the rule-based summary is shown.</p>
+        }
+    }
+</div>
+
+@if (Report != null && !IsGenerating)
+{
+    <div class="session-tools sh-box">
+        <span class="sh-box-title">Tools called</span>
+        <span class="sh-box-aside">@Report.ToolCalls.Count in this session</span>
+        <div class="session-tools-scroll">
+            <table class="table session-tools-table mb-0">
+                <thead>
+                    <tr>
+                        <th class="col-number">#</th>
+                        <th class="col-time">Time</th>
+                        <th class="col-tool">Tool</th>
+                        <th>Parameters</th>
+                        <th class="col-status">Status</th>
+                        <th>Brain</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Report.ToolCalls)
+                    {
+                        <tr>
+                            <td class="mono">@item.Number</td>
+                            <td class="mono">@item.Time.ToLocalTime().ToString("HH:mm:ss")</td>
+                            <td class="mono">@item.Tool/@item.Action</td>
+                            <td class="mono">@(item.Parameters.Length == 0 ? "—" : item.Parameters)</td>
+                            <td><span class="badge @StatusStyles.PillClass(item.Status)">@item.Status</span></td>
+                            <td class="session-brain">@(item.Brain ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The latest session report, or null before the first one is made.</summary>
+    [Parameter]
+    public SessionReport? Report { get; set; }
+
+    /// <summary>True while the summary brain is writing the report.</summary>
+    [Parameter]
+    public bool IsGenerating { get; set; }
+}
+
+<style>
+    .session-summary {
+        background: var(--sh-success-soft);
+        font-size: 0.87rem;
+        line-height: 1.5;
+    }
+
+        /* The title straddles the border: surface colour above it, the box's tint below. */
+        .session-summary > .sh-box-title,
+        .session-summary > .sh-box-aside {
+            background: linear-gradient(var(--sh-surface) 55%, var(--sh-success-soft) 55%);
+        }
+
+    .session-summary-text {
+        margin: 0 0 0.5rem;
+    }
+
+        .session-summary-text:last-of-type {
+            margin-bottom: 0;
+        }
+
+    .session-summary-note {
+        margin: 0.5rem 0 0;
+        color: var(--sh-warning);
+        font-size: 0.8rem;
+    }
+
+    .session-tools {
+        padding: 0.75rem 0.4rem 0.4rem;
+    }
+
+    .session-tools-scroll {
+        overflow: auto;
+    }
+
+    .session-tools-table {
+        font-size: 0.82rem;
+        min-width: 36rem;
+        --bs-table-bg: transparent;
+    }
+
+        .session-tools-table thead th {
+            background: var(--sh-surface-muted);
+            color: var(--sh-text-muted);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--sh-border);
+            padding: 0.35rem 0.6rem;
+        }
+
+        .session-tools-table td {
+            padding: 0.3rem 0.6rem;
+            vertical-align: middle;
+            border-color: var(--sh-border);
+            overflow-wrap: anywhere;
+        }
+
+        .session-tools-table .col-number { width: 2.5rem; }
+        .session-tools-table .col-time { width: 5rem; }
+        .session-tools-table .col-tool { width: 11rem; }
+        .session-tools-table .col-status { width: 8.5rem; }
+
+        .session-tools-table .mono {
+            font-family: var(--sh-font-mono);
+            font-size: 0.78rem;
+        }
+
+    .session-brain {
+        color: var(--sh-text-muted);
+        font-family: var(--sh-font-mono);
+        font-size: 0.76rem;
+    }
+</style>
