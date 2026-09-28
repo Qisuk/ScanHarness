@@ -210,6 +210,28 @@ namespace ScanHarness.Tests
             Assert.False(turn.PromptBlocked);
             Assert.Single(turn.PromptControls);
             Assert.Equal("No tool fits.", turn.AgentMessage);
+
+            // The warning is also carried to the reply's pip.
+            var carried = Assert.Single(turn.ReplyPipControls);
+            Assert.Equal(BadInstruction, carried.ControlId);
+            Assert.Equal("request", carried.Target);
+        }
+
+        [Fact]
+        public void Reply_pip_lists_carried_warnings_before_its_own_hits_and_never_carries_blocks()
+        {
+            var logs = new[]
+            {
+                Entry(LogLevel.User, "Request: scan", new() { ["prompt"] = "BadInstruction scan example.com/<script>x" }),
+                ControlEntry(BadInstruction, ControlMode.Advise, "request"),
+                ControlEntry("chat-in-another-rule", ControlMode.Block, "request"),
+                Entry(LogLevel.Info, "decision", new() { ["agentMessage"] = "I'll scan https://example.com/<script>x" }),
+                ControlEntry(ScriptTag, ControlMode.Advise, "reply"),
+            };
+
+            var turn = Assert.Single(ChatTranscript.Build(logs, Array.Empty<ToolCall>()));
+
+            Assert.Equal(new[] { BadInstruction, ScriptTag }, turn.ReplyPipControls.Select(v => v.ControlId));
         }
 
         [Fact]

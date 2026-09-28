@@ -567,6 +567,13 @@ public class HarnessUITests : PageTest
             await Expect(UserBubbles.First.Locator(".control-pip.is-advise")).ToBeVisibleAsync();
             await Expect(AgentBubbles.First.Locator(".agent-message")).ToContainTextAsync("I'll scan https://example.com");
             await Expect(Page.Locator(".feed-item", new() { HasText = "Warning: Chat In control" })).ToBeVisibleAsync();
+
+            // The warning is also shown on the returned message, and its pip says what it was raised on.
+            var replyPip = AgentBubbles.First.Locator(".chat-meta .control-pip");
+            await Expect(replyPip).ToHaveClassAsync(new Regex("is-advise"));
+            await replyPip.ClickAsync();
+            await Expect(AgentBubbles.First.Locator(".control-pip-popover")).ToContainTextAsync("On the request");
+            await Expect(Page.Locator(".output-area .output-tool")).ToContainTextAsync("scanner"); // the pip click didn't reselect
         }
         finally
         {
@@ -587,6 +594,41 @@ public class HarnessUITests : PageTest
         await Expect(reply.Locator(".agent-summary")).ToContainTextAsync("Summary withheld");
         await Expect(Page.Locator(".output-area .output-summary")).ToContainTextAsync("Summary withheld");
         await Expect(Page.Locator(".feed-item", new() { HasText = "Block: Chat Out control" })).ToHaveCountAsync(2);
+    }
+
+    private async Task<(string Name, string Duration)> PipAnimationAsync()
+    {
+        var pip = UserBubbles.First.Locator(".control-pip");
+        await Expect(pip).ToBeVisibleAsync(new() { Timeout = 15000 });
+        var values = await pip.EvaluateAsync<string[]>("el => { const s = getComputedStyle(el); return [s.animationName, s.animationDuration]; }");
+        return (values[0], values[1]);
+    }
+
+    [Test]
+    public async Task Pips_flash_no_faster_than_the_accessibility_limit()
+    {
+        await GotoHarnessAsync();
+        await PromptInput.FillAsync("BadInstruction");
+        await SendButton.ClickAsync();
+
+        var (name, duration) = await PipAnimationAsync();
+
+        Assert.That(name, Does.StartWith("control-pip-flash"));
+        // One flash per cycle: 0.4s is 2.5 flashes a second, under WCAG 2.3.1's limit of 3.
+        Assert.That(duration, Is.EqualTo("0.4s"));
+    }
+
+    [Test]
+    public async Task Pips_do_not_flash_when_reduced_motion_is_requested()
+    {
+        await Page.EmulateMediaAsync(new PageEmulateMediaOptions { ReducedMotion = ReducedMotion.Reduce });
+        await GotoHarnessAsync();
+        await PromptInput.FillAsync("BadInstruction");
+        await SendButton.ClickAsync();
+
+        var (name, _) = await PipAnimationAsync();
+
+        Assert.That(name, Is.EqualTo("none"));
     }
 
     // --- Enter to send, Shift+Enter for a new line ---

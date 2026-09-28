@@ -63,6 +63,13 @@ namespace ScanHarness.Services
         /// <summary>Chat Out controls that matched the tool call's summary.</summary>
         public List<ControlViolation> SummaryControls { get; } = new();
 
+        /// <summary>
+        /// Everything the reply's pip reports: warnings (Advise) raised on the question it answers, then
+        /// hits on the reply and its tool call. A blocked question has no reply, so only warnings carry over.
+        /// </summary>
+        public IReadOnlyList<ControlViolation> ReplyPipControls =>
+            PromptControls.Where(v => v.Mode == ControlMode.Advise).Concat(ReplyControls).ToList();
+
         /// <summary>A Chat In control blocked the question, so it was never sent to the brain.</summary>
         public bool PromptBlocked => PromptControls.Any(IsBlock);
 
