@@ -15,6 +15,9 @@ public class ServerFixture
 
     public static string BaseUrl => Host;
 
+    private static readonly string DatabaseDirectory = Path.Combine(Path.GetTempPath(), "scanharness-uitests", Guid.NewGuid().ToString("N"));
+    private static string DatabasePath => Path.Combine(DatabaseDirectory, "activity.db");
+
     [OneTimeSetUp]
     public async Task StartServer()
     {
@@ -35,6 +38,8 @@ public class ServerFixture
         _process.StartInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         // UI tests need deterministic decisions, so use only the keyword brain even if an LLM endpoint is running.
         _process.StartInfo.Environment["Llm__Enabled"] = "false";
+        // A fresh database per run, so tests start empty and never touch the real activity data.
+        _process.StartInfo.Environment["Persistence__DatabasePath"] = DatabasePath;
         _process.Start();
 
         // Drain stdout/stderr (so the app never blocks on a full pipe buffer) and tee to a log file for debugging.
@@ -57,6 +62,15 @@ public class ServerFixture
             _process.WaitForExit(5000);
         }
         _process?.Dispose();
+
+        try
+        {
+            Directory.Delete(DatabaseDirectory, recursive: true);
+        }
+        catch (IOException)
+        {
+            // Best-effort clean-up of the temp database.
+        }
     }
 
     private static string LocateAppDll()

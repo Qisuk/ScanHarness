@@ -34,3 +34,8 @@ packages/
 # OS
 Thumbs.db
 .DS_Store
+
+# Local activity database (sessions, tool calls, logs)
+*.db
+*.db-shm
+*.db-wal

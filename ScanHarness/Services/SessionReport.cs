@@ -10,7 +10,8 @@ namespace ScanHarness.Services
     /// <param name="Parameters">Parameters as "key=value" pairs in key order, or empty.</param>
     /// <param name="Status">Final (or current) status of the call.</param>
     /// <param name="Brain">Brain that chose the call, if recorded.</param>
-    public sealed record ToolCallListItem(int Number, DateTime Time, string Tool, string Action, string Parameters, ToolCallStatus Status, string? Brain);
+    /// <param name="UserName">User who made the request that led to the call, if recorded.</param>
+    public sealed record ToolCallListItem(int Number, DateTime Time, string Tool, string Action, string Parameters, ToolCallStatus Status, string? Brain, string? UserName = null);
 
     /// <summary>The result of summarising a whole session.</summary>
     /// <param name="ToolCalls">Every tool call in the session, built deterministically.</param>
@@ -50,7 +51,8 @@ namespace ScanHarness.Services
                     call.Action,
                     FormatParameters(call.Parameters),
                     call.Status,
-                    call.Brain))
+                    call.Brain,
+                    call.UserName))
                 .ToList();
 
         /// <summary>

@@ -1,26 +1,47 @@
 using ScanHarness.Models;
+using ScanHarness.Services.Persistence;
 using LogLevel = ScanHarness.Models.LogLevel;
 
 namespace ScanHarness.Services
 {
     /// <summary>
-    /// Tracks activity for the harness. Keeps an in-memory list of log entries for the
-    /// UI activity feed and appends every entry to a log file for auditing and debugging.
+    /// Tracks activity for the harness. Keeps the current session's log entries in memory for the
+    /// UI activity feed, saves every entry to the activity store (stamped with the session and the
+    /// user who performed the action), and appends it to a text log file for auditing and debugging.
     /// </summary>
     public class LogService
     {
         private readonly List<LogEntry> _logs = new();
         private readonly object _lockObject = new();
         private readonly string _logFilePath;
+        private readonly SessionState? _session;
+        private readonly IActivityStore? _store;
 
         /// <summary>Raised whenever the set of log entries changes so the UI can refresh.</summary>
         public event Action? OnLogsChanged;
 
-        public LogService()
+        /// <param name="session">Current user and session; entries are stamped with them. Optional for tests.</param>
+        /// <param name="store">Where entries are saved; null keeps them in memory only.</param>
+        public LogService(SessionState? session = null, IActivityStore? store = null)
         {
+            _session = session;
+            _store = store;
+
             var logDirectory = Path.Combine(AppContext.BaseDirectory, "logs");
             Directory.CreateDirectory(logDirectory);
             _logFilePath = Path.Combine(logDirectory, $"toolcalls-{DateTime.UtcNow:yyyy-MM-dd}.log");
+        }
+
+        /// <summary>Replaces the in-memory entries with a stored session's, e.g. when a session is opened.</summary>
+        public void LoadSession(IEnumerable<LogEntry> entries)
+        {
+            lock (_lockObject)
+            {
+                _logs.Clear();
+                _logs.AddRange(entries.OrderBy(e => e.Timestamp));
+            }
+
+            OnLogsChanged?.Invoke();
         }
 
         public void LogInfo(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
@@ -51,7 +72,9 @@ namespace ScanHarness.Services
                 Message = message,
                 ToolCallId = toolCallId,
                 Data = data,
-                Brain = brain
+                Brain = brain,
+                SessionId = _session?.Current.Id,
+                UserName = _session?.CurrentUser.Name,
             };
 
             lock (_lockObject)
@@ -59,17 +82,40 @@ namespace ScanHarness.Services
                 _logs.Add(entry);
             }
 
+            Persist(entry);
             WriteToFile(entry);
             OnLogsChanged?.Invoke();
         }
 
+        private void Persist(LogEntry entry)
+        {
+            if (_store == null || _session == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _session.EnsureSaved();
+                _store.AppendLog(entry);
+            }
+            catch (Exception ex)
+            {
+                // Saving is best-effort for the UI: record the failure in the text log instead of breaking the page.
+                WriteLine($"{DateTime.UtcNow:O}\tError\t{entry.SessionId}\t-\t-\t-\tCould not save log entry {entry.Id}: {ex.Message}");
+            }
+        }
+
         private void WriteToFile(LogEntry entry)
         {
-            // Tab-separated: timestamp, level, tool call id, brain, message ("-" for empty columns).
-            var toolCallPart = string.IsNullOrEmpty(entry.ToolCallId) ? "-" : entry.ToolCallId;
-            var brainPart = string.IsNullOrEmpty(entry.Brain) ? "-" : entry.Brain;
-            var line = $"{entry.Timestamp:O}\t{entry.Level}\t{toolCallPart}\t{brainPart}\t{entry.Message}";
+            // Tab-separated: timestamp, level, session id, user, tool call id, brain, message ("-" for empty columns).
+            static string Column(string? value) => string.IsNullOrEmpty(value) ? "-" : value;
+            WriteLine($"{entry.Timestamp:O}\t{entry.Level}\t{Column(entry.SessionId)}\t{Column(entry.UserName)}\t" +
+                      $"{Column(entry.ToolCallId)}\t{Column(entry.Brain)}\t{entry.Message}");
+        }
 
+        private void WriteLine(string line)
+        {
             try
             {
                 lock (_lockObject)
@@ -105,6 +151,7 @@ namespace ScanHarness.Services
             }
         }
 
+        /// <summary>Clears the activity feed view only; saved entries stay in the store and the log file.</summary>
         public void Clear()
         {
             lock (_lockObject)

@@ -178,6 +178,95 @@ public class HarnessUITests : PageTest
         await Expect(Page.Locator(".feed-item", new() { HasText = "Session summary (" })).ToBeVisibleAsync();
     }
 
+    // --- Users, sessions and persistence ---
+
+    private ILocator SessionSelect => Page.Locator("#session-select");
+
+    private async Task SendAndWaitAsync(string request)
+    {
+        await PromptInput.FillAsync(request);
+        await SendButton.ClickAsync();
+        await Expect(Page.Locator(".agent-summary, .agent-message")).Not.ToHaveCountAsync(0, new() { Timeout = 20000 });
+        await Expect(Page.Locator(".status-state")).ToHaveTextAsync("Ready", new() { Timeout = 20000 });
+    }
+
+    private async Task SwitchUserAsync(string user)
+    {
+        await Page.Locator("#user-select").SelectOptionAsync(user);
+        await Expect(Page.Locator("#user-select")).ToHaveValueAsync(user);
+    }
+
+    private async Task OpenSessionAsync(string titleText)
+    {
+        var value = await SessionSelect.Locator("option", new() { HasText = titleText }).GetAttributeAsync("value");
+        await SessionSelect.SelectOptionAsync(value!);
+    }
+
+    [Test]
+    public async Task Offers_the_four_users_and_starts_as_chris()
+    {
+        await GotoHarnessAsync();
+
+        var users = await Page.Locator("#user-select option").AllInnerTextsAsync();
+        Assert.That(users, Is.EqualTo(new[] { "chris", "raccoon", "blob", "admin" }));
+        await Expect(Page.Locator("#user-select")).ToHaveValueAsync("chris");
+    }
+
+    [Test]
+    public async Task Saved_session_survives_a_reload_and_can_be_reopened()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("what's the weather in Reykjavik?");
+
+        await Page.ReloadAsync(new PageReloadOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await Expect(PromptInput).ToBeEnabledAsync(new() { Timeout = 15000 });
+
+        // The reloaded page starts a new session; the saved one is loaded from the database into the picker.
+        await Expect(SessionSelect.Locator("option", new() { HasText = "Reykjavik" })).ToHaveCountAsync(1);
+        await OpenSessionAsync("Reykjavik");
+
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Request: what's the weather in Reykjavik?" })).ToBeVisibleAsync();
+        await Expect(Page.Locator(".agent-summary")).ToContainTextAsync("weather forecast for Reykjavik");
+        await Expect(Page.Locator(".output-area")).ToContainTextAsync("weather");
+    }
+
+    [Test]
+    public async Task Users_only_see_their_own_sessions()
+    {
+        await GotoHarnessAsync();
+        await SwitchUserAsync("raccoon");
+        await SendAndWaitAsync("what's the weather in Oslo?");
+
+        await SwitchUserAsync("blob");
+        await Expect(SessionSelect.Locator("option", new() { HasText = "Oslo" })).ToHaveCountAsync(0);
+
+        await SwitchUserAsync("raccoon");
+        await Expect(SessionSelect.Locator("option", new() { HasText = "Oslo" })).ToHaveCountAsync(1);
+    }
+
+    [Test]
+    public async Task Admin_sees_every_users_sessions_with_the_user_on_each_entry()
+    {
+        await GotoHarnessAsync();
+        await SwitchUserAsync("blob");
+        await SendAndWaitAsync("what's the weather in Lisbon?");
+
+        await SwitchUserAsync("admin");
+        var option = SessionSelect.Locator("option", new() { HasText = "Lisbon" });
+        await Expect(option).ToContainTextAsync("blob");
+        await OpenSessionAsync("Lisbon");
+
+        // The request is labelled with the user; the entries it triggered carry a user tag.
+        var request = Page.Locator(".feed-item", new() { HasText = "Request: what's the weather in Lisbon?" });
+        await Expect(request.Locator(".badge")).ToHaveTextAsync("blob");
+        var selected = Page.Locator(".feed-item", new() { HasText = "Agent selected tool: weather/forecast" }).Last;
+        await Expect(selected.Locator(".feed-item-user")).ToHaveTextAsync("blob");
+
+        // History shows the user column too.
+        await Page.GetByRole(AriaRole.Tab, new() { Name = "History" }).ClickAsync();
+        await Expect(Page.Locator(".history-user").First).ToHaveTextAsync("blob");
+    }
+
     [Test]
     public async Task Dark_theme_is_the_default()
     {

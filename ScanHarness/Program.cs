@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using ScanHarness.Components;
 using ScanHarness.Services;
 using ScanHarness.Services.Llm;
+using ScanHarness.Services.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,9 +12,22 @@ builder.Services.AddRazorComponents()
 
 // Harness services.
 builder.Services.AddHttpClient();
-// Scoped (per Blazor circuit): the activity feed is a per-user view, and a scoped
-// service avoids stale component subscriptions leaking across circuits. The audit
-// log file that LogService writes remains shared across all users.
+
+// Persistence: sessions, tool calls and log entries are saved to a local SQLite database so every
+// session can be recreated after a restart. Swap the IActivityStore registration to use another store.
+builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection(PersistenceOptions.SectionName));
+builder.Services.AddSingleton<IActivityStore>(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<PersistenceOptions>>().Value;
+    var path = Path.IsPathRooted(options.DatabasePath)
+        ? options.DatabasePath
+        : Path.Combine(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, options.DatabasePath);
+    return new SqliteActivityStore(path);
+});
+
+// Scoped (per Blazor circuit): the selected user and session, the activity feed and the tool calls
+// are per-user views. Everything they record is saved to the shared store and the audit log file.
+builder.Services.AddScoped<SessionState>();
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<ToolCallService>();
 // Agent "brains" that decide which tool to call: the rule-based keyword brain, plus one brain
@@ -26,6 +40,13 @@ builder.Services.AddSingleton<KeywordAgentBrain>();
 builder.Services.AddScoped<AgentBrainSelector>();
 
 var app = builder.Build();
+
+// Create the database if needed and close out calls a previous run left unfinished.
+var interrupted = app.Services.GetRequiredService<IActivityStore>().Initialize();
+if (interrupted > 0)
+{
+    app.Logger.LogWarning("Marked {Count} unfinished tool call(s) from a previous run as interrupted.", interrupted);
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

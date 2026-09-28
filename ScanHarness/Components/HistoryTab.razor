@@ -8,6 +8,10 @@
             <thead>
                 <tr>
                     <th class="col-time">Time</th>
+                    @if (ShowUsers)
+                    {
+                        <th class="col-user">User</th>
+                    }
                     <th class="col-tool">Tool</th>
                     <th class="col-action">Action</th>
                     <th>Brain</th>
@@ -19,7 +23,7 @@
                 @if (!ToolCalls.Any())
                 {
                     <tr>
-                        <td colspan="6" class="history-empty">No tool calls yet</td>
+                        <td colspan="@ColumnCount" class="history-empty">No tool calls yet</td>
                     </tr>
                 }
                 else
@@ -29,6 +33,10 @@
                         <tr class="history-row @(expandedId == call.Id ? "is-expanded" : "")"
                             @onclick="() => expandedId = expandedId == call.Id ? null : call.Id">
                             <td class="mono">@call.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</td>
+                            @if (ShowUsers)
+                            {
+                                <td class="history-user">@(call.UserName ?? "—")</td>
+                            }
                             <td>@call.Tool</td>
                             <td>@call.Action</td>
                             <td class="history-brain">@(call.Brain ?? "—")</td>
@@ -45,13 +53,32 @@
                         @if (expandedId == call.Id)
                         {
                             <tr class="history-details-row">
-                                <td colspan="6">
+                                <td colspan="@ColumnCount">
                                     <div class="expanded-details">
                                         @if (!string.IsNullOrEmpty(call.Summary))
                                         {
                                             <div class="output-label">Summary</div>
                                             <p class="history-summary">@call.Summary</p>
                                         }
+                                        <dl class="history-facts">
+                                            <dt>Requested</dt>
+                                            <dd>@call.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")@(call.UserName != null ? $" by {call.UserName}" : "")</dd>
+                                            @if (call.ApprovalDecision != null)
+                                            {
+                                                <dt>Approval</dt>
+                                                <dd>@call.ApprovalDecision@(call.ApprovalDecidedBy != null ? $" by {call.ApprovalDecidedBy}" : "")@(call.ApprovalDecidedAt is DateTime decided ? $" at {decided.ToLocalTime():HH:mm:ss}" : "")</dd>
+                                            }
+                                            @if (call.CompletedAt is DateTime completed)
+                                            {
+                                                <dt>Finished</dt>
+                                                <dd>@completed.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                                            }
+                                            @if (!string.IsNullOrEmpty(call.Error))
+                                            {
+                                                <dt>Error</dt>
+                                                <dd>@call.Error</dd>
+                                            }
+                                        </dl>
                                         <div class="output-label">Parameters</div>
                                         <pre class="sh-code">@(call.Parameters.Count == 0 ? "(none)" : string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}")))</pre>
     
@@ -74,6 +101,12 @@
 @code {
     [Parameter]
     public List<ToolCall> ToolCalls { get; set; } = new();
+
+    /// <summary>Adds a User column (the admin view, which mixes users' calls).</summary>
+    [Parameter]
+    public bool ShowUsers { get; set; }
+
+    private int ColumnCount => ShowUsers ? 7 : 6;
 
     private string? expandedId;
 }
@@ -142,6 +175,31 @@
         font-size: 0.78rem;
         color: var(--sh-text-muted);
     }
+
+    .history-table .col-user { width: 5.5rem; }
+
+    .history-user {
+        color: var(--sh-user);
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+
+    .history-facts {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.15rem 0.75rem;
+        margin: 0 0 0.6rem;
+        font-size: 0.8rem;
+    }
+
+        .history-facts dt {
+            font-weight: 500;
+            color: var(--sh-text-muted);
+        }
+
+        .history-facts dd {
+            margin: 0;
+        }
 
     .history-summary {
         margin: 0 0 0.75rem;
