@@ -15,4 +15,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Guardrail control definitions; also copied next to the app (and to projects that reference it). -->
+    <Content Update="controls.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

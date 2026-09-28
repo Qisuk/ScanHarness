@@ -45,6 +45,18 @@ builder.Services.AddScoped<AgentBrainSelector>();
 
 var app = builder.Build();
 
+// Guardrail controls come from a JSON file (Controls:DefinitionsPath, relative to the content root).
+// An invalid file stops startup with a message listing every problem, rather than silently
+// running without a guardrail.
+var controlsPath = app.Configuration["Controls:DefinitionsPath"] ?? ScanHarness.Services.Controls.ControlCatalog.DefaultFileName;
+if (!Path.IsPathRooted(controlsPath))
+{
+    controlsPath = Path.Combine(app.Environment.ContentRootPath, controlsPath);
+}
+var controls = ScanHarness.Services.Controls.ControlCatalog.Load(controlsPath);
+ScanHarness.Services.Controls.ControlCatalog.Use(controls);
+app.Logger.LogInformation("Loaded {Count} control(s) from {Path}.", controls.Count, controlsPath);
+
 // Create the database if needed and close out calls a previous run left unfinished.
 var interrupted = app.Services.GetRequiredService<IActivityStore>().Initialize();
 if (interrupted > 0)

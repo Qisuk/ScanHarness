@@ -67,10 +67,40 @@ log entry) or **Block** (a red pip, a **Block** log entry, and the message is st
 Click a pip to see which control(s) triggered and what they found. Settings are saved per user
 in the database and changes are logged.
 
-The first controls are Chat In *Contains "BadInstruction"* (exact text) and Chat Out
-*Contains "&lt;script&gt;"* (any letter case), both defaulting to Block; there are no ToolRule
-controls yet. Controls are defined in `Services/Controls/ControlCatalog.cs`, and adding one
-there puts it on the Controls page and applies it at its stage.
+### Defining controls
+
+Controls are read at startup from **`ScanHarness/controls.json`** (set by `Controls:DefinitionsPath`,
+relative to the app's content root). Add a control there and it appears on the Controls page and
+is applied at its stage:
+
+```json
+{
+  "controls": [
+    {
+      "id": "chat-in-ignore-previous",
+      "stage": "ChatIn",
+      "name": "Contains \"ignore previous\"",
+      "description": "Flags a message that tries to override earlier instructions.",
+      "defaultMode": "Block",
+      "rule": { "type": "regex", "value": "\\bignore\\s+previous\\b" }
+    }
+  ]
+}
+```
+
+- **stage**: `ChatIn`, `ChatOut` or `ToolRule`. **defaultMode**: `Off`, `Advise` or `Block`, used
+  until a user changes it.
+- **rule.type**: `contains` (plain text) or `regex` (a .NET regular expression).
+  **rule.caseSensitive** defaults to `false`.
+- **id** keys each user's saved setting, so keep it stable when editing a control.
+- A regex that takes too long on a message (over 250 ms) counts as a match, so a slow
+  pattern can't let text through unchecked.
+- The file is validated at startup. If anything is wrong (a bad regex, a duplicate id, a missing
+  field, an unknown stage or mode) the app won't start, and the error lists every problem.
+
+The shipped controls are Chat In *Contains "BadInstruction"* (exact text), Chat In
+*Contains "ignore previous"* (a regex, any case or spacing) and Chat Out *Contains "&lt;script&gt;"*
+(any case), all defaulting to Block. There are no ToolRule controls yet.
 
 ## Agent brains
 

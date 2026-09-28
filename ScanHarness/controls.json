@@ -1,0 +1,29 @@
+{
+  "$comment": "Guardrail controls shown on the Controls page. stage: ChatIn | ChatOut | ToolRule. defaultMode: Off | Advise | Block (used until a user changes it; ids key each user's saved setting, so keep them stable). rule.type: contains (plain text) | regex (.NET regular expression; a pattern that times out counts as a match). rule.caseSensitive defaults to false.",
+  "controls": [
+    {
+      "id": "chat-in-contains-badinstruction",
+      "stage": "ChatIn",
+      "name": "Contains \"BadInstruction\"",
+      "description": "Flags a message that includes the text \"BadInstruction\" (exact, case-sensitive).",
+      "defaultMode": "Block",
+      "rule": { "type": "contains", "value": "BadInstruction", "caseSensitive": true }
+    },
+    {
+      "id": "chat-in-ignore-previous",
+      "stage": "ChatIn",
+      "name": "Contains \"ignore previous\"",
+      "description": "Flags a message that tries to override earlier instructions with \"ignore previous\" (any letter case or spacing).",
+      "defaultMode": "Block",
+      "rule": { "type": "regex", "value": "\\bignore\\s+previous\\b" }
+    },
+    {
+      "id": "chat-out-contains-script-tag",
+      "stage": "ChatOut",
+      "name": "Contains \"<script>\"",
+      "description": "Flags a reply or summary that includes a \"<script>\" tag (any letter case).",
+      "defaultMode": "Block",
+      "rule": { "type": "contains", "value": "<script>" }
+    }
+  ]
+}
