@@ -109,10 +109,15 @@ namespace ScanHarness.Services
         private void WriteToFile(LogEntry entry)
         {
             // Tab-separated: timestamp, level, session id, user, tool call id, brain, message ("-" for empty columns).
+            // Line breaks and tabs (e.g. from multi-line messages) are escaped so each entry stays on one line.
             static string Column(string? value) => string.IsNullOrEmpty(value) ? "-" : value;
             WriteLine($"{entry.Timestamp:O}\t{entry.Level}\t{Column(entry.SessionId)}\t{Column(entry.UserName)}\t" +
-                      $"{Column(entry.ToolCallId)}\t{Column(entry.Brain)}\t{entry.Message}");
+                      $"{Column(entry.ToolCallId)}\t{Column(entry.Brain)}\t{OneLine(entry.Message)}");
         }
+
+        /// <summary>Escapes line breaks and tabs so a message fits one tab-separated log line.</summary>
+        internal static string OneLine(string message) =>
+            message.Replace("\\", "\\\\").Replace("\r\n", "\\n").Replace("\n", "\\n").Replace("\r", "\\n").Replace("\t", "\\t");
 
         private void WriteLine(string line)
         {

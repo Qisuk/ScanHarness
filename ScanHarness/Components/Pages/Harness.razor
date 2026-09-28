@@ -93,7 +93,7 @@
                 <!-- Chat (top): questions and the agent's replies; select a reply to show its tool output below -->
                 <div class="input-area chat-area sh-box">
                     <h2 class="sh-box-title">Chat with the agent</h2>
-                    <span class="sh-box-aside">select a reply to show its tool output</span>
+                    <span class="sh-box-aside"><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
 
                     <ChatWindow Turns="transcript"
                                 SelectedToolCallId="@DisplayedToolCall?.Id"
@@ -104,12 +104,15 @@
                                 ShowUsers="ShowUsers" />
 
                     <div class="input-group chat-input">
-                        <input type="text" class="form-control"
-                               @bind="prompt" @bind:event="oninput"
-                               @onkeydown="HandlePromptKeyDown"
-                               title="Use ↑ and ↓ to recall previous prompts"
-                               placeholder="e.g. scan example.com for links, or attack example.com" />
-                        <button class="btn btn-primary px-4" @onclick="SubmitPrompt"
+                        @* Enter sends and Shift+Enter adds a line (wwwroot/chat-input.js); ↑/↓ recall single-line prompts. *@
+                        <textarea id="prompt-input" class="form-control chat-textarea" rows="1"
+                                  data-send-on-enter="send-button"
+                                  aria-label="Message the agent"
+                                  @bind="prompt" @bind:event="oninput"
+                                  @onkeydown="HandlePromptKeyDown"
+                                  title="Enter to send · Shift+Enter for a new line · ↑ and ↓ recall previous prompts"
+                                  placeholder="e.g. scan example.com for links, or attack example.com"></textarea>
+                        <button id="send-button" class="btn btn-primary px-4" @onclick="SubmitPrompt"
                                 disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting || isSummarizingSession)">
                             @(isThinking ? "Thinking..." : isSummarizing ? "Summarizing..." : isExecuting ? "Working..." : "Send")
                         </button>
@@ -382,7 +385,8 @@
     // Terminal-style recall: Up walks to older prompts, Down walks back toward the new/empty prompt.
     private void HandlePromptKeyDown(KeyboardEventArgs e)
     {
-        if (promptHistory.Count == 0)
+        // In a multi-line message the arrow keys move between lines, so recall only applies to single-line text.
+        if (promptHistory.Count == 0 || prompt.Contains('\n'))
             return;
 
         if (e.Key == "ArrowUp")
@@ -795,6 +799,17 @@
 
     .chat-input {
         flex: none;
+        align-items: flex-end;
+    }
+
+    /* Grows with its content up to six lines, then scrolls (chat-input.js does this where
+       field-sizing isn't supported). */
+    .chat-textarea {
+        resize: none;
+        field-sizing: content;
+        min-height: calc(1.5em + 0.75rem + 2px);
+        max-height: calc(6 * 1.5em + 0.75rem + 2px);
+        line-height: 1.5;
     }
 
     .output-area {

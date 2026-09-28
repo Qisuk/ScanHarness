@@ -39,6 +39,11 @@ The **Main** tab is a chat with the agent. Your questions appear on the right an
 replies on the left. Each reply shows the brain's decision, the tool it ran with that call's status,
 and the summary of the result, and the chat stays scrolled to the newest message.
 
+Press **Enter** to send and **Shift+Enter** for a new line (the input grows up to six lines).
+Enter does nothing while the agent is busy or the message is empty, and while an input method
+is composing text it confirms the text instead of sending. **↑** and **↓** recall earlier prompts
+when the message is a single line.
+
 The **Tool output** pane below shows the latest tool call. Select any reply that ran a tool (click
 it, or focus it and press Enter or Space) to show that request's output instead. The pane's
 border then reads *selected request*, with **Show latest** to go back. The next request switches

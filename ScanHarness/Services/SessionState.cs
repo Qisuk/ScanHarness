@@ -105,7 +105,8 @@ namespace ScanHarness.Services
                 return;
             }
 
-            var text = prompt.Trim();
+            // Multi-line requests become a single-line title for the session picker.
+            var text = string.Join(" ", prompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             Current.Title = text.Length <= MaxTitleLength ? text : text[..MaxTitleLength] + "…";
             if (_store != null)
             {
