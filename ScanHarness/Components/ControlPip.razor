@@ -1,0 +1,47 @@
+@using ScanHarness.Services.Controls
+
+@* A coloured pip on a message flagged by controls: orange for Advise, red when any control blocked it.
+   Clicking it lists which controls triggered and what they found. *@
+@if (Violations.Count > 0)
+{
+    <span class="control-pip-wrap">
+        <button type="button" class="control-pip @(IsBlock ? "is-block" : "is-advise")"
+                aria-expanded="@open.ToString().ToLowerInvariant()"
+                aria-label="@Label"
+                title="@Label"
+                @onclick="Toggle" @onclick:stopPropagation="true"
+                @onkeydown:stopPropagation="true"></button>
+        @if (open)
+        {
+            <span class="control-pip-popover" role="dialog" aria-label="Controls that flagged this message"
+                  @onclick:stopPropagation="true">
+                @foreach (var violation in Violations)
+                {
+                    <span class="control-pip-item">
+                        <span class="control-pip-mode @(violation.Mode == ControlMode.Block ? "is-block" : "is-advise")">
+                            @(violation.Mode == ControlMode.Block ? "Block" : "Advise")
+                        </span>
+                        <span class="control-pip-name">@violation.StageName · @violation.Name</span>
+                        <span class="control-pip-detail">@violation.Detail</span>
+                    </span>
+                }
+            </span>
+        }
+    </span>
+}
+
+@code {
+    /// <summary>Controls that matched this message.</summary>
+    [Parameter]
+    public IReadOnlyList<ControlViolation> Violations { get; set; } = Array.Empty<ControlViolation>();
+
+    private bool open;
+
+    private bool IsBlock => Violations.Any(v => v.Mode == ControlMode.Block);
+
+    private string Label =>
+        $"{(IsBlock ? "Blocked" : "Flagged")} by {Violations.Count} control{(Violations.Count == 1 ? "" : "s")}: " +
+        string.Join(", ", Violations.Select(v => v.Name));
+
+    private void Toggle() => open = !open;
+}

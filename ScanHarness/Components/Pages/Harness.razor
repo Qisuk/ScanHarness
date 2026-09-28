@@ -6,6 +6,8 @@
 @inject AgentBrainSelector BrainSelector
 @inject SessionState Session
 @inject ScanHarness.Services.Persistence.IActivityStore Store
+@inject ScanHarness.Services.Controls.ControlService Controls
+@using ScanHarness.Services.Controls
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -257,6 +259,13 @@
         // Saved sessions come from the database; the page starts on a new session for the default user.
         RefreshSessions();
 
+        // Coming back from another page in the same circuit, the session is still in the services: show it.
+        recentLogs = LogService.GetRecentLogs(FeedSize);
+        lastToolCall = ToolCallService.GetToolCalls().LastOrDefault();
+        RebuildTranscript();
+        promptHistory.AddRange(transcript.Where(t => t.Kind == ChatTurnKind.Request).Select(t => t.Prompt));
+        historyIndex = promptHistory.Count;
+
         // Lists the LLM endpoint's models; falls back to the keyword brain if it's unreachable.
         await BrainSelector.InitializeAsync();
     }
@@ -436,6 +445,13 @@
             var brain = BrainSelector.Current;
             Session.RecordTitle(userPrompt);
             LogService.LogUser($"Request: {userPrompt}", data: new() { ["prompt"] = userPrompt }, brain: brain.Name);
+
+            // Chat In controls run before the message reaches the brain; Block stops it here.
+            var chatIn = Controls.Check(ControlStage.ChatIn, ChatTranscript.Targets.Request, userPrompt);
+            ReportControls(chatIn, brain.Name);
+            if (chatIn.IsBlocked)
+                return;
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             isThinking = true;
             ToolDecision decision;
@@ -461,11 +477,15 @@
                 ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds,
             };
 
+            // Chat Out controls check the brain's reply; Block withholds it (the original stays in the log data).
+            var replyCheck = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Reply, decision.Message);
+
             if (decision.Error != null)
             {
                 // The brain itself failed (e.g. LLM endpoint down): nothing is called.
                 decisionData["error"] = decision.Error;
                 LogService.LogError($"Brain failed after {elapsed}: {decision.Error}", data: decisionData, brain: brain.Name);
+                ReportControls(replyCheck, brain.Name);
                 return;
             }
 
@@ -473,10 +493,18 @@
             {
                 // No suitable tool: report back to the user without calling anything.
                 LogService.LogWarning($"No tool selected for request: {userPrompt} · {elapsed}", data: decisionData, brain: brain.Name);
+                ReportControls(replyCheck, brain.Name);
                 return;
             }
 
             LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {elapsed}", data: decisionData, brain: brain.Name);
+            ReportControls(replyCheck, brain.Name);
+
+            // ToolRule controls run before the tool is executed; Block means it never runs.
+            var toolCheck = Controls.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, DescribeToolCall(decision));
+            ReportControls(toolCheck, brain.Name);
+            if (toolCheck.IsBlocked)
+                return;
 
             // The approval requirement comes from the agent's decision, not the user.
             // The confirmation modal only appears when the chosen tool requires approval.
@@ -517,17 +545,57 @@
             isSummarizing = false;
         }
 
-        ToolCallService.RecordSummary(toolCall, summary.Text, brain.Name);
+        // Chat Out controls check the summary. A blocked summary is withheld everywhere it would be shown
+        // or reused (the tool output, History, the session summary); the original is kept in the log data.
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Summary, summary.Text);
+        var shown = check.IsBlocked ? WithheldSummary : summary.Text;
+        ToolCallService.RecordSummary(toolCall, shown, brain.Name);
 
         if (summary.FallbackReason != null)
         {
             LogService.LogWarning($"Brain couldn't summarise ({summary.FallbackReason}); used the rule-based summary", toolCall.Id, brain: brain.Name);
         }
 
-        LogService.LogSummary($"{summary.Text} · {stopwatch.Elapsed.TotalSeconds:0.0}s", toolCall.Id,
+        LogService.LogSummary($"{shown} · {stopwatch.Elapsed.TotalSeconds:0.0}s", toolCall.Id,
             data: new() { ["summary"] = summary.Text, ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds },
             brain: brain.Name);
+        ReportControls(check, brain.Name, toolCall.Id);
     }
+
+    private const string WithheldSummary = "Summary withheld: blocked by a Chat Out control.";
+
+    // Logs each control hit as a Warning (Advise) or Block entry, right after the entry it checked, with
+    // the details the chat needs to show pips when the session is recreated.
+    private void ReportControls(ControlCheck check, string brainName, string? toolCallId = null)
+    {
+        foreach (var violation in check.Violations)
+        {
+            var outcome = violation.Mode != ControlMode.Block
+                ? "flagged"
+                : violation.Target switch
+                {
+                    ChatTranscript.Targets.Request => "blocked; it was not sent to the brain",
+                    ChatTranscript.Targets.ToolCall => "blocked; the tool was not run",
+                    _ => "blocked; it was withheld",
+                };
+            var message = $"{(violation.Mode == ControlMode.Block ? "Block" : "Warning")}: {violation.StageName} control " +
+                          $"'{violation.Name}' {outcome} ({violation.Target}). {violation.Detail}";
+            var data = new Dictionary<string, object>
+            {
+                ["controls"] = ControlService.ToJson(new[] { violation }),
+                ["target"] = violation.Target,
+            };
+
+            if (violation.Mode == ControlMode.Block)
+                LogService.LogBlock(message, toolCallId, data, brainName);
+            else
+                LogService.LogWarning(message, toolCallId, data, brainName);
+        }
+    }
+
+    // The text ToolRule controls check: the tool, its action and its parameters.
+    private static string DescribeToolCall(ToolDecision decision) =>
+        $"{decision.Tool}/{decision.Action} " + string.Join(" ", decision.Parameters.Select(p => $"{p.Key}={p.Value}"));
 
     private void ApproveToolCall()
     {
@@ -574,8 +642,12 @@
             isSummarizingSession = false;
         }
 
+        // Chat Out controls check the session summary; Block withholds it (the original stays in the log data).
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.SessionSummary, summary.Text);
+        var shown = check.IsBlocked ? "Session summary withheld: blocked by a Chat Out control." : summary.Text;
+
         var toolList = SessionReportBuilder.ListToolCalls(calls);
-        sessionReport = new SessionReport(toolList, summary.Text, brain.Name, summary.FallbackReason, DateTime.UtcNow);
+        sessionReport = new SessionReport(toolList, shown, brain.Name, summary.FallbackReason, DateTime.UtcNow);
 
         if (summary.FallbackReason != null)
         {
@@ -586,7 +658,7 @@
             $"{t.Number}. {t.Tool}/{t.Action}{(t.Parameters.Length > 0 ? $" ({t.Parameters})" : "")} {t.Status}"));
         LogService.LogInfo($"Tools called this session: {listText}", brain: brain.Name);
         LogService.LogSummary(
-            $"Session summary ({sessionReport.SummaryWordCount} words · {stopwatch.Elapsed.TotalSeconds:0.0}s): {summary.Text.Replace("\n\n", " ")}",
+            $"Session summary ({sessionReport.SummaryWordCount} words · {stopwatch.Elapsed.TotalSeconds:0.0}s): {shown.Replace("\n\n", " ")}",
             data: new()
             {
                 ["sessionSummary"] = summary.Text,
@@ -594,6 +666,7 @@
                 ["fallbackReason"] = summary.FallbackReason ?? "",
             },
             brain: brain.Name);
+        ReportControls(check, brain.Name);
         RefreshSessions();
     }
 
@@ -825,15 +898,6 @@
         overflow: auto;
         margin: 0 -0.35rem;
         padding: 0.1rem 0.35rem 0;
-    }
-
-    .empty-state {
-        padding: 1rem;
-        text-align: center;
-        color: var(--sh-text-subtle);
-        font-size: 0.82rem;
-        border: 1px dashed var(--sh-border-strong);
-        border-radius: var(--sh-radius-sm);
     }
 
     /* Activity feed: its own box, scrolling inside. */

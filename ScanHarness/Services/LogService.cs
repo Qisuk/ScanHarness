@@ -60,6 +60,10 @@ namespace ScanHarness.Services
         public void LogUser(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
             => Add(LogLevel.User, message, toolCallId, data, brain);
 
+        /// <summary>Logs something a control blocked (Advise-mode hits use <see cref="LogWarning"/>).</summary>
+        public void LogBlock(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Block, message, toolCallId, data, brain);
+
         /// <summary>Logs the brain's summary of a finished action.</summary>
         public void LogSummary(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
             => Add(LogLevel.Summary, message, toolCallId, data, brain);

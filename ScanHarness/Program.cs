@@ -28,6 +28,8 @@ builder.Services.AddSingleton<IActivityStore>(sp =>
 // Scoped (per Blazor circuit): the selected user and session, the activity feed and the tool calls
 // are per-user views. Everything they record is saved to the shared store and the audit log file.
 builder.Services.AddScoped<SessionState>();
+// Guardrails (Chat In, Chat Out, ToolRule) with each user's Off/Advise/Block settings.
+builder.Services.AddScoped<ScanHarness.Services.Controls.ControlService>();
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<ToolCallService>();
 // Agent "brains" that decide which tool to call: the rule-based keyword brain, plus one brain

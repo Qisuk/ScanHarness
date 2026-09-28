@@ -52,6 +52,26 @@ back to the latest call automatically.
 The chat is built from the session's logged entries and tool calls (`Services/ChatTranscript.cs`),
 so a reopened session shows the same conversation.
 
+## Controls (guardrails)
+
+The **Controls** page (in the menu) lists guardrails, grouped by where they apply:
+
+| Stage | Applied to | Block means |
+|---|---|---|
+| **Chat In** | Your message, before it's passed to the brain | It's never sent to the brain |
+| **Chat Out** | The brain's reply, each action summary and the session summary | The text is withheld (the original stays in the log data) |
+| **ToolRule** | The tool call the brain chose, before the tool runs | The tool isn't run |
+
+Each control is **Off** (no action), **Advise** (an orange pip on the message and a **Warning**
+log entry) or **Block** (a red pip, a **Block** log entry, and the message is stopped as above).
+Click a pip to see which control(s) triggered and what they found. Settings are saved per user
+in the database and changes are logged.
+
+The first controls are Chat In *Contains "BadInstruction"* (exact text) and Chat Out
+*Contains "&lt;script&gt;"* (any letter case), both defaulting to Block; there are no ToolRule
+controls yet. Controls are defined in `Services/Controls/ControlCatalog.cs`, and adding one
+there puts it on the Controls page and applies it at its stage.
+
 ## Agent brains
 
 A brain has two jobs, each picked from its own menu at the top of the harness page:
