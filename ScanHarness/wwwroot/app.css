@@ -1,8 +1,12 @@
 /* ---------------------------------------------------------------
    Design tokens: one neutral palette, one accent, soft status tints.
-   Components reference these instead of hard-coded colors.
+   Components reference these instead of hard-coded colors, so a theme
+   only has to redefine the tokens. The light theme is the base; the
+   dark theme below overrides it. wwwroot/theme.js sets data-theme
+   (and Bootstrap's data-bs-theme) on <html>, defaulting to dark.
    --------------------------------------------------------------- */
 :root {
+    color-scheme: light;
     --sh-bg: #f5f7fa;
     --sh-surface: #ffffff;
     --sh-surface-muted: #f8fafc;
@@ -28,6 +32,13 @@
     --sh-user-soft: #f5f3ff;
     --sh-neutral: #475467;
     --sh-neutral-soft: #f2f4f7;
+    --sh-neutral-pressed: #e7eaef;
+
+    /* Borders for tinted status boxes, and focus rings. */
+    --sh-success-border: #9fdcb5;
+    --sh-danger-border: #fecaca;
+    --sh-focus-ring: rgba(37, 99, 235, 0.18);
+    --sh-backdrop: rgba(15, 23, 42, 0.45);
 
     --sh-radius: 8px;
     --sh-radius-sm: 6px;
@@ -41,6 +52,45 @@
     --bs-body-color: var(--sh-text);
     --bs-body-bg: var(--sh-bg);
     --bs-border-color: var(--sh-border);
+}
+
+/* Dark theme: slate surfaces with brighter status colours so they keep their contrast. */
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --sh-bg: #0b1220;
+    --sh-surface: #121a2b;
+    --sh-surface-muted: #0e1626;
+    --sh-border: #223049;
+    --sh-border-strong: #31405c;
+    --sh-text: #e5e9f0;
+    --sh-text-muted: #9ba7ba;
+    --sh-text-subtle: #6c7a90;
+
+    --sh-accent: #3b82f6;
+    --sh-accent-hover: #2563eb;
+    --sh-accent-soft: rgba(59, 130, 246, 0.16);
+
+    --sh-success: #4ade80;
+    --sh-success-soft: rgba(74, 222, 128, 0.1);
+    --sh-warning: #fbbf24;
+    --sh-warning-soft: rgba(251, 191, 36, 0.12);
+    --sh-danger: #f87171;
+    --sh-danger-soft: rgba(248, 113, 113, 0.12);
+    --sh-info: #38bdf8;
+    --sh-info-soft: rgba(56, 189, 248, 0.12);
+    --sh-user: #c4b5fd;
+    --sh-user-soft: rgba(167, 139, 250, 0.16);
+    --sh-neutral: #cbd5e1;
+    --sh-neutral-soft: #1a2438;
+    --sh-neutral-pressed: #243049;
+
+    --sh-success-border: rgba(74, 222, 128, 0.35);
+    --sh-danger-border: rgba(248, 113, 113, 0.35);
+    --sh-focus-ring: rgba(59, 130, 246, 0.35);
+    --sh-backdrop: rgba(2, 6, 15, 0.65);
+
+    --sh-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --sh-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
 }
 
 html, body {
@@ -85,7 +135,7 @@ a, .btn-link {
     --bs-btn-hover-bg: var(--sh-neutral-soft);
     --bs-btn-hover-border-color: var(--sh-border-strong);
     --bs-btn-active-color: var(--sh-text);
-    --bs-btn-active-bg: #e7eaef;
+    --bs-btn-active-bg: var(--sh-neutral-pressed);
     --bs-btn-active-border-color: var(--sh-border-strong);
 }
 
@@ -96,7 +146,7 @@ a, .btn-link {
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
     border-color: var(--sh-accent);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+    box-shadow: 0 0 0 3px var(--sh-focus-ring);
 }
 
 kbd {
@@ -128,6 +178,55 @@ kbd {
     color: var(--sh-text-muted);
     margin: 0;
 }
+
+/* Boxed section: a bordered frame whose title sits in the top border (like a fieldset legend),
+   so sections need no separate heading or spacing around it. Boxes sit on a surface-coloured
+   frame, so the title's background matches and "cuts" the border. */
+.sh-box {
+    position: relative;
+    border: 1px solid var(--sh-border-strong);
+    border-radius: var(--sh-radius-sm);
+    background: var(--sh-surface);
+    padding: 0.85rem 0.7rem 0.6rem;
+    min-width: 0;
+}
+
+.sh-box-title,
+.sh-box-aside {
+    position: absolute;
+    top: -0.6rem;
+    padding: 0 0.35rem;
+    background: var(--sh-surface);
+    font-size: 0.68rem;
+    line-height: 1.2rem;
+    white-space: nowrap;
+}
+
+.sh-box-title {
+    left: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sh-text-muted);
+    margin: 0;
+}
+
+/* Secondary text or a small control on the right of the top border. */
+.sh-box-aside {
+    right: 0.55rem;
+    color: var(--sh-text-subtle);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.sh-box-success {
+    border-color: var(--sh-success-border);
+}
+
+    .sh-box-success > .sh-box-title {
+        color: var(--sh-success);
+    }
 
 .sh-code {
     background: var(--sh-surface-muted);
@@ -173,8 +272,8 @@ kbd {
 .badge.sh-pill-user { background: var(--sh-user-soft); color: var(--sh-user); }
 
 .content {
-    padding-top: 1.5rem;
-    padding-bottom: 1.5rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
 }
 
 h1:focus {

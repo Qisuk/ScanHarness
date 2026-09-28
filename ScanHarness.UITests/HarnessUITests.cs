@@ -141,6 +141,42 @@ public class HarnessUITests : PageTest
     }
 
     [Test]
+    public async Task Dark_theme_is_the_default()
+    {
+        await GotoHarnessAsync();
+
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-theme", "dark");
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-bs-theme", "dark");
+        await Expect(Page.Locator("#theme-select")).ToHaveValueAsync("dark");
+    }
+
+    [Test]
+    public async Task Chosen_theme_applies_immediately_and_survives_a_reload()
+    {
+        await GotoHarnessAsync();
+
+        await Page.Locator("#theme-select").SelectOptionAsync("light");
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-theme", "light");
+
+        await Page.ReloadAsync(new PageReloadOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-theme", "light");
+        await Expect(Page.Locator("#theme-select")).ToHaveValueAsync("light");
+    }
+
+    [Test]
+    public async Task System_theme_follows_the_operating_system_setting()
+    {
+        await Page.EmulateMediaAsync(new PageEmulateMediaOptions { ColorScheme = ColorScheme.Light });
+        await GotoHarnessAsync();
+
+        await Page.Locator("#theme-select").SelectOptionAsync("system");
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-theme", "light");
+
+        await Page.EmulateMediaAsync(new PageEmulateMediaOptions { ColorScheme = ColorScheme.Dark });
+        await Expect(Page.Locator("html")).ToHaveAttributeAsync("data-theme", "dark");
+    }
+
+    [Test]
     public async Task Attack_request_prompts_for_approval_and_logs_the_decision()
     {
         await GotoHarnessAsync();

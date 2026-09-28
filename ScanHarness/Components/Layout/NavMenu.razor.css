@@ -100,9 +100,49 @@
     display: none;
 }
 
+/* Flex column so the theme picker can sit at the bottom of the sidebar. */
 .navbar-toggler:checked ~ .nav-scrollable {
-    display: block;
+    display: flex;
+    flex-direction: column;
 }
+
+/* The sidebar is dark in both themes, so the picker uses the sidebar's own colours. */
+.theme-picker {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 1rem;
+    border-top: 1px solid #1e293b;
+}
+
+.theme-picker-label {
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0;
+}
+
+.theme-select {
+    flex: 1;
+    min-width: 0;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid #31405c;
+    border-radius: 6px;
+    background: #1e293b;
+    color: #f8fafc;
+    font-size: 0.8rem;
+    color-scheme: dark;
+    cursor: pointer;
+}
+
+    .theme-select:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+    }
 
 @media (min-width: 641px) {
     .navbar-toggler {
@@ -111,7 +151,8 @@
 
     .nav-scrollable {
         /* Never collapse the sidebar for wide screens */
-        display: block;
+        display: flex;
+        flex-direction: column;
 
         /* Allow sidebar to scroll for tall menus */
         height: calc(100vh - 3.5rem);

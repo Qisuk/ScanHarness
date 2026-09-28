@@ -60,6 +60,14 @@ The model only chooses a tool and its arguments. Whether a tool needs approval c
 `Services/ToolCatalog.cs`, so an LLM can't skip the attack confirmation, and any URL or
 location the user didn't actually type is discarded rather than acted on.
 
+## Themes
+
+The app opens in **dark mode**. Change it with the **Theme** menu at the bottom of the sidebar:
+Dark, Light, or System (follows your operating system). The choice is remembered per browser
+(`localStorage`). Colours are defined once as CSS variables in `wwwroot/app.css`, with the dark
+values under `:root[data-theme="dark"]`; `wwwroot/theme.js` applies the theme before the page is
+drawn and also switches on Bootstrap's own dark mode (`data-bs-theme`).
+
 ## Logging
 
 Every request, decision, approval, tool call and summary is recorded with the **brain** that handled it:
