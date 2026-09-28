@@ -75,6 +75,13 @@ namespace ScanHarness.Services.Persistence
                         brain         TEXT,
                         data_json     TEXT
                     );
+                    CREATE TABLE IF NOT EXISTS control_settings (
+                        user_name   TEXT NOT NULL,
+                        control_id  TEXT NOT NULL,
+                        mode        TEXT NOT NULL,
+                        changed_at  TEXT NOT NULL,
+                        PRIMARY KEY (user_name, control_id)
+                    );
                     CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_name, last_activity_at);
                     CREATE INDEX IF NOT EXISTS ix_tool_calls_session ON tool_calls(session_id, created_at);
                     CREATE INDEX IF NOT EXISTS ix_log_entries_session ON log_entries(session_id, timestamp);
@@ -335,6 +342,49 @@ namespace ScanHarness.Services.Persistence
                 }
 
                 return entries;
+            }
+        }
+
+        public IReadOnlyDictionary<string, Controls.ControlMode> LoadControlSettings(string userName)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT control_id, mode FROM control_settings WHERE user_name = $user;";
+                command.Parameters.AddWithValue("$user", userName);
+
+                var settings = new Dictionary<string, Controls.ControlMode>();
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    // Ignore modes this version doesn't know rather than failing to load.
+                    if (Enum.TryParse<Controls.ControlMode>(reader.GetString(1), out var mode))
+                    {
+                        settings[reader.GetString(0)] = mode;
+                    }
+                }
+
+                return settings;
+            }
+        }
+
+        public void SaveControlSetting(string userName, string controlId, Controls.ControlMode mode, DateTime changedAt)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO control_settings (user_name, control_id, mode, changed_at)
+                    VALUES ($user, $control, $mode, $changed)
+                    ON CONFLICT(user_name, control_id) DO UPDATE SET mode = excluded.mode, changed_at = excluded.changed_at;
+                    """;
+                command.Parameters.AddWithValue("$user", userName);
+                command.Parameters.AddWithValue("$control", controlId);
+                command.Parameters.AddWithValue("$mode", mode.ToString());
+                command.Parameters.AddWithValue("$changed", Format(changedAt));
+                command.ExecuteNonQuery();
             }
         }
 

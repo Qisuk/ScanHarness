@@ -228,6 +228,16 @@ kbd {
         color: var(--sh-success);
     }
 
+/* Placeholder shown in an empty box (no output yet, no controls in a stage, ...). */
+.empty-state {
+    padding: 1rem;
+    text-align: center;
+    color: var(--sh-text-subtle);
+    font-size: 0.82rem;
+    border: 1px dashed var(--sh-border-strong);
+    border-radius: var(--sh-radius-sm);
+}
+
 .sh-code {
     background: var(--sh-surface-muted);
     border: 1px solid var(--sh-border);

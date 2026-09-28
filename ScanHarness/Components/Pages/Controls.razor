@@ -1,0 +1,243 @@
+@page "/controls"
+@using ScanHarness.Models
+@using ScanHarness.Services
+@using ScanHarness.Services.Controls
+@inject SessionState Session
+@inject ControlService ControlService
+@inject LogService LogService
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Controls · ScanHarness</PageTitle>
+
+<div class="controls-page">
+    <header class="controls-header sh-box">
+        <h1 class="sh-box-title controls-title">Controls</h1>
+        <p class="controls-intro">
+            Guardrails applied to the chat and to tool calls. Each can be <strong>Off</strong>,
+            <strong>Advise</strong> (flag with an orange pip and log a Warning) or <strong>Block</strong>
+            (flag with a red pip, log a Block and stop the message). Settings are saved for each user.
+        </p>
+        <div class="brain-picker" title="Placeholder sign-in: each user has their own control settings">
+            <label for="controls-user-select" class="brain-picker-label">User</label>
+            <select id="controls-user-select" class="brain-select" value="@Session.CurrentUser.Name" @onchange="OnUserChanged">
+                @foreach (var user in HarnessUsers.All)
+                {
+                    <option value="@user.Name">@user.Name</option>
+                }
+            </select>
+        </div>
+    </header>
+
+    @foreach (var stage in Enum.GetValues<ControlStage>())
+    {
+        var controls = ControlCatalog.ForStage(stage).ToList();
+        <section class="controls-stage sh-box" aria-labelledby="stage-@stage">
+            <h2 id="stage-@stage" class="sh-box-title">@ControlCatalog.StageName(stage)</h2>
+            <span class="sh-box-aside">@controls.Count control@(controls.Count == 1 ? "" : "s")</span>
+            <p class="controls-stage-description">@StageDescription(stage)</p>
+
+            @if (controls.Count == 0)
+            {
+                <div class="empty-state">No @ControlCatalog.StageName(stage) controls yet.</div>
+            }
+
+            @foreach (var control in controls)
+            {
+                var mode = ControlService.GetMode(control);
+                <div class="control-row" data-control-id="@control.Id">
+                    <div class="control-text">
+                        <div class="control-name">@control.Name</div>
+                        <div class="control-description">@control.Description</div>
+                    </div>
+                    <div class="mode-switch" role="radiogroup" aria-label="@($"{control.Name} mode")">
+                        @foreach (var option in Enum.GetValues<ControlMode>())
+                        {
+                            var id = $"{control.Id}-{option}";
+                            <input type="radio" class="mode-input" id="@id" name="@control.Id" value="@option"
+                                   checked="@(mode == option)" @onchange="() => SetMode(control, option)" />
+                            <label for="@id" class="mode-option mode-@option.ToString().ToLowerInvariant()">@option</label>
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => ControlService.OnChanged += OnControlsChanged;
+
+    private static string StageDescription(ControlStage stage) => stage switch
+    {
+        ControlStage.ChatIn => "Applied to your message before it is passed to the brain. Block stops it reaching the brain.",
+        ControlStage.ChatOut => "Applied to the brain's replies and summaries. Block withholds the text (the original is kept in the log).",
+        ControlStage.ToolRule => "Applied to a tool call the brain chose, before the tool is executed. Block stops the tool running.",
+        _ => ""
+    };
+
+    private void OnUserChanged(ChangeEventArgs e) => Session.SwitchUser(e.Value?.ToString() ?? "");
+
+    // Saves the user's choice and records it in the activity log.
+    private void SetMode(ControlDefinition control, ControlMode mode)
+    {
+        if (ControlService.SetMode(control.Id, mode))
+        {
+            LogService.LogUser($"Set {ControlCatalog.StageName(control.Stage)} control '{control.Name}' to {mode}",
+                data: new() { ["controlId"] = control.Id, ["mode"] = mode.ToString() });
+        }
+    }
+
+    private void OnControlsChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => ControlService.OnChanged -= OnControlsChanged;
+}
+
+<style>
+    .controls-page {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        max-width: 64rem;
+        padding-top: 0.6rem;
+    }
+
+    .controls-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.8rem 0.7rem 0.6rem;
+    }
+
+    .controls-title {
+        font-size: 0.78rem;
+        color: var(--sh-text);
+    }
+
+    .controls-intro {
+        margin: 0;
+        flex: 1;
+        color: var(--sh-text-muted);
+        font-size: 0.85rem;
+    }
+
+    .controls-header .brain-picker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+        border: 1px solid var(--sh-border-strong);
+        border-radius: var(--sh-radius-sm);
+        background: var(--sh-surface-muted);
+        white-space: nowrap;
+    }
+
+    .controls-header .brain-picker-label {
+        font-weight: 600;
+        color: var(--sh-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.66rem;
+        margin: 0;
+    }
+
+    .controls-header .brain-select {
+        border: 1px solid var(--sh-border);
+        border-radius: 4px;
+        background: var(--sh-surface);
+        color: var(--sh-text);
+        font-size: 0.78rem;
+        padding: 0.15rem 0.5rem;
+    }
+
+    .controls-stage-description {
+        margin: 0 0 0.5rem;
+        color: var(--sh-text-muted);
+        font-size: 0.82rem;
+    }
+
+    .control-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.5rem 0.2rem;
+        border-top: 1px solid var(--sh-border);
+    }
+
+    .control-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .control-name {
+        font-weight: 600;
+        font-family: var(--sh-font-mono);
+        font-size: 0.85rem;
+    }
+
+    .control-description {
+        color: var(--sh-text-muted);
+        font-size: 0.8rem;
+    }
+
+    /* Three-position switch: Off | Advise | Block. */
+    .mode-switch {
+        display: inline-flex;
+        flex: none;
+        border: 1px solid var(--sh-border-strong);
+        border-radius: 999px;
+        padding: 2px;
+        background: var(--sh-surface-muted);
+    }
+
+    .mode-input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        pointer-events: none;
+    }
+
+    .mode-option {
+        margin: 0;
+        padding: 0.2rem 0.85rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--sh-text-muted);
+        cursor: pointer;
+        user-select: none;
+    }
+
+        .mode-option:hover {
+            color: var(--sh-text);
+        }
+
+    .mode-input:focus-visible + .mode-option {
+        outline: 2px solid var(--sh-accent);
+        outline-offset: 1px;
+    }
+
+    .mode-input:checked + .mode-off {
+        background: var(--sh-neutral-soft);
+        color: var(--sh-text);
+        box-shadow: inset 0 0 0 1px var(--sh-border-strong);
+    }
+
+    .mode-input:checked + .mode-advise {
+        background: #f59e0b;
+        color: #1f1300;
+    }
+
+    .mode-input:checked + .mode-block {
+        background: #ef4444;
+        color: #fff;
+    }
+
+    @@media (max-width: 640px) {
+        .controls-header,
+        .control-row {
+            flex-wrap: wrap;
+        }
+    }
+</style>

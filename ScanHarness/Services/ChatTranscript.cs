@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ScanHarness.Models;
+using ScanHarness.Services.Controls;
 using LogLevel = ScanHarness.Models.LogLevel;
 
 namespace ScanHarness.Services
@@ -52,6 +53,29 @@ namespace ScanHarness.Services
 
         /// <summary>Brain that wrote <see cref="Summary"/>.</summary>
         public string? SummaryBrain { get; set; }
+
+        /// <summary>Chat In controls that matched the question.</summary>
+        public List<ControlViolation> PromptControls { get; } = new();
+
+        /// <summary>Chat Out controls that matched the reply (or session summary), and ToolRule controls that matched its tool call.</summary>
+        public List<ControlViolation> ReplyControls { get; } = new();
+
+        /// <summary>Chat Out controls that matched the tool call's summary.</summary>
+        public List<ControlViolation> SummaryControls { get; } = new();
+
+        /// <summary>A Chat In control blocked the question, so it was never sent to the brain.</summary>
+        public bool PromptBlocked => PromptControls.Any(IsBlock);
+
+        /// <summary>A Chat Out control blocked the reply (or session summary); its text is withheld.</summary>
+        public bool ReplyWithheld => ReplyControls.Any(v => IsBlock(v) && v.Stage == ControlStage.ChatOut);
+
+        /// <summary>A ToolRule control blocked the tool call, so the tool never ran.</summary>
+        public bool ToolBlocked => ReplyControls.Any(v => IsBlock(v) && v.Stage == ControlStage.ToolRule);
+
+        /// <summary>A Chat Out control blocked the summary; its text is withheld.</summary>
+        public bool SummaryWithheld => SummaryControls.Any(IsBlock);
+
+        private static bool IsBlock(ControlViolation v) => v.Mode == ControlMode.Block;
     }
 
     /// <summary>
@@ -103,6 +127,14 @@ namespace ScanHarness.Services
                     continue;
                 }
 
+                // Control hits are logged right after what they checked; attach them to that part of the turn.
+                var controls = ReadString(entry, "controls");
+                if (controls != null)
+                {
+                    AttachControls(turns, current, ReadString(entry, "target"), ControlService.FromJson(controls));
+                    continue;
+                }
+
                 if (current == null)
                 {
                     continue;
@@ -137,6 +169,38 @@ namespace ScanHarness.Services
             }
 
             return turns;
+        }
+
+        /// <summary>Log data "target" values: what a control checked.</summary>
+        public static class Targets
+        {
+            public const string Request = "request";
+            public const string Reply = "reply";
+            public const string ToolCall = "tool call";
+            public const string Summary = "summary";
+            public const string SessionSummary = "session summary";
+        }
+
+        private static void AttachControls(List<ChatTurn> turns, ChatTurn? current, string? target, IReadOnlyList<ControlViolation> violations)
+        {
+            if (target == Targets.SessionSummary)
+            {
+                turns.LastOrDefault(t => t.Kind == ChatTurnKind.SessionSummary)?.ReplyControls.AddRange(violations);
+                return;
+            }
+
+            if (current == null)
+            {
+                return;
+            }
+
+            var list = target switch
+            {
+                Targets.Request => current.PromptControls,
+                Targets.Summary => current.SummaryControls,
+                _ => current.ReplyControls, // reply and tool call
+            };
+            list.AddRange(violations);
         }
 
         // A request is a user entry carrying the prompt; older entries without data fall back to the message.

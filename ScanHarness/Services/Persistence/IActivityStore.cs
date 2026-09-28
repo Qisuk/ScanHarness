@@ -37,6 +37,12 @@ namespace ScanHarness.Services.Persistence
 
         /// <summary>A session's log entries, oldest first.</summary>
         IReadOnlyList<LogEntry> LoadLogs(string sessionId);
+
+        /// <summary>A user's control settings by control id (controls they haven't changed are absent).</summary>
+        IReadOnlyDictionary<string, Controls.ControlMode> LoadControlSettings(string userName);
+
+        /// <summary>Saves a user's mode for one control.</summary>
+        void SaveControlSetting(string userName, string controlId, Controls.ControlMode mode, DateTime changedAt);
     }
 
     /// <summary>Settings for the activity store (config section "Persistence").</summary>

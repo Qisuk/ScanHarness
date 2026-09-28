@@ -23,10 +23,21 @@
                         <div class="chat-meta">
                             <span class="chat-who">@(ShowUsers && turn.UserName != null ? turn.UserName : "You")</span>
                             <span class="chat-time">@turn.RequestedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                            <ControlPip Violations="turn.PromptControls" />
                         </div>
                         <div class="chat-text">@turn.Prompt</div>
+                        @if (turn.PromptBlocked)
+                        {
+                            <div class="chat-blocked-note">Blocked by a Chat In control: not sent to the brain.</div>
+                        }
                     </div>
                 </div>
+            }
+
+            // A blocked question never reached the brain, so there is no reply to show.
+            if (turn.PromptBlocked)
+            {
+                continue;
             }
 
             var selectable = turn.ToolCall != null;
@@ -51,9 +62,16 @@
                         {
                             <span class="chat-time">@replied.ToLocalTime().ToString("HH:mm:ss")</span>
                         }
+                        <ControlPip Violations="turn.ReplyControls" />
                     </div>
 
-                    @if (turn.AgentMessage != null)
+                    @if (turn.ReplyWithheld)
+                    {
+                        <div class="agent-message chat-text chat-withheld">
+                            @(turn.Kind == ChatTurnKind.SessionSummary ? "Session summary" : "Reply") withheld: blocked by a Chat Out control.
+                        </div>
+                    }
+                    else if (turn.AgentMessage != null)
                     {
                         @if (turn.Kind == ChatTurnKind.SessionSummary)
                         {
@@ -85,12 +103,17 @@
                             <span class="chat-tool-hint">@(selected ? "Output shown below" : "Select to show output")</span>
                         </div>
                     }
+                    else if (turn.ToolBlocked)
+                    {
+                        <div class="chat-blocked-note">Tool call blocked by a ToolRule control: the tool was not run.</div>
+                    }
 
                     @if (turn.Summary != null)
                     {
-                        <div class="agent-summary chat-summary">
+                        <div class="agent-summary chat-summary @(turn.SummaryWithheld ? "chat-withheld" : "")">
                             <span class="chat-summary-label">Summary</span>
-                            <span>@turn.Summary</span>
+                            <span>@(turn.SummaryWithheld ? "Summary withheld: blocked by a Chat Out control." : turn.Summary)</span>
+                            <ControlPip Violations="turn.SummaryControls" />
                         </div>
                     }
                     else if (isLast && IsSummarizing && turn.ToolCall != null)
@@ -270,6 +293,27 @@
         .chat-paragraph:last-child {
             margin-bottom: 0;
         }
+
+    .chat-meta .control-pip-wrap {
+        margin-left: 0.15rem;
+    }
+
+    .chat-summary .control-pip-wrap {
+        margin-left: auto;
+        align-self: center;
+    }
+
+    .chat-blocked-note {
+        margin-top: 0.3rem;
+        color: var(--sh-danger);
+        font-size: 0.78rem;
+        font-weight: 500;
+    }
+
+    .chat-withheld {
+        color: var(--sh-text-muted);
+        font-style: italic;
+    }
 
     .chat-error {
         margin-top: 0.3rem;

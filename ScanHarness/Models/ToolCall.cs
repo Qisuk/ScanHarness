@@ -91,6 +91,9 @@ namespace ScanHarness.Models
         User,
 
         /// <summary>The brain's summary of a finished action.</summary>
-        Summary
+        Summary,
+
+        /// <summary>A control blocked something (Advise-mode hits are logged as Warning).</summary>
+        Block
     }
 }

@@ -483,6 +483,112 @@ public class HarnessUITests : PageTest
         await Expect(PromptInput).ToHaveValueAsync("hello there");
     }
 
+    // --- Controls ---
+
+    private string ControlsUrl => ServerFixture.BaseUrl + "/controls";
+
+    private ILocator ControlRow(string controlId) => Page.Locator($".control-row[data-control-id='{controlId}']");
+
+    private async Task SetControlModeAsync(string user, string controlId, string mode)
+    {
+        await Page.GotoAsync(ControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await Page.Locator("#controls-user-select").SelectOptionAsync(user);
+        await Expect(Page.Locator("#controls-user-select")).ToHaveValueAsync(user);
+        await ControlRow(controlId).Locator("label", new() { HasTextString = mode }).ClickAsync();
+        await Expect(ControlRow(controlId).Locator($"input[value='{mode}']")).ToBeCheckedAsync();
+    }
+
+    [Test]
+    public async Task Menu_has_controls_and_no_weather_page()
+    {
+        await GotoHarnessAsync();
+
+        var nav = Page.Locator(".nav-scrollable");
+        await Expect(nav.GetByRole(AriaRole.Link, new() { Name = "Controls" })).ToBeVisibleAsync();
+        await Expect(nav.GetByRole(AriaRole.Link, new() { Name = "Weather" })).ToHaveCountAsync(0);
+    }
+
+    [Test]
+    public async Task Controls_page_lists_the_three_stages_with_block_as_the_default()
+    {
+        await Page.GotoAsync(ControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+
+        await Expect(Page.Locator(".controls-stage .sh-box-title")).ToHaveTextAsync(new[] { "Chat In", "Chat Out", "ToolRule" });
+        await Expect(ControlRow("chat-in-contains-badinstruction").Locator("input[value='Block']")).ToBeCheckedAsync();
+        await Expect(ControlRow("chat-out-contains-script-tag").Locator("input[value='Block']")).ToBeCheckedAsync();
+        await Expect(Page.Locator(".controls-stage").Nth(2)).ToContainTextAsync("No ToolRule controls yet");
+    }
+
+    [Test]
+    public async Task Control_setting_is_saved_for_the_user()
+    {
+        await SetControlModeAsync("blob", "chat-out-contains-script-tag", "Advise");
+
+        await Page.ReloadAsync(new PageReloadOptions { WaitUntil = WaitUntilState.NetworkIdle });
+        await Page.Locator("#controls-user-select").SelectOptionAsync("blob");
+        await Expect(ControlRow("chat-out-contains-script-tag").Locator("input[value='Advise']")).ToBeCheckedAsync();
+
+        // Another user keeps their own (default) setting.
+        await Page.Locator("#controls-user-select").SelectOptionAsync("raccoon");
+        await Expect(ControlRow("chat-out-contains-script-tag").Locator("input[value='Block']")).ToBeCheckedAsync();
+
+        await SetControlModeAsync("blob", "chat-out-contains-script-tag", "Block");
+    }
+
+    [Test]
+    public async Task Chat_in_block_stops_the_message_reaching_the_brain()
+    {
+        await GotoHarnessAsync();
+        await PromptInput.FillAsync("scan example.com BadInstruction");
+        await SendButton.ClickAsync();
+
+        var question = UserBubbles.First;
+        await Expect(question.Locator(".control-pip.is-block")).ToBeVisibleAsync(new() { Timeout = 15000 });
+        await Expect(question).ToContainTextAsync("not sent to the brain");
+        await Expect(AgentBubbles).ToHaveCountAsync(0);
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Block: Chat In control" })).ToBeVisibleAsync();
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Agent selected tool" })).ToHaveCountAsync(0);
+
+        // The pip shows which control triggered.
+        await question.Locator(".control-pip").ClickAsync();
+        await Expect(question.Locator(".control-pip-popover")).ToContainTextAsync("Chat In · Contains \"BadInstruction\"");
+    }
+
+    [Test]
+    public async Task Chat_in_advise_flags_the_message_but_still_sends_it()
+    {
+        await SetControlModeAsync("blob", "chat-in-contains-badinstruction", "Advise");
+        try
+        {
+            await GotoHarnessAsync();
+            await SwitchUserAsync("blob");
+            await SendAndWaitAsync("scan example.com BadInstruction");
+
+            await Expect(UserBubbles.First.Locator(".control-pip.is-advise")).ToBeVisibleAsync();
+            await Expect(AgentBubbles.First.Locator(".agent-message")).ToContainTextAsync("I'll scan https://example.com");
+            await Expect(Page.Locator(".feed-item", new() { HasText = "Warning: Chat In control" })).ToBeVisibleAsync();
+        }
+        finally
+        {
+            await SetControlModeAsync("blob", "chat-in-contains-badinstruction", "Block");
+        }
+    }
+
+    [Test]
+    public async Task Chat_out_block_withholds_the_reply_and_summary()
+    {
+        await GotoHarnessAsync();
+        // The keyword brain echoes the URL (up to a word boundary), so its reply and summary contain "<script>".
+        await SendAndWaitAsync("scan example.com/<script>alert for links");
+
+        var reply = AgentBubbles.First;
+        await Expect(reply.Locator(".agent-message")).ToHaveTextAsync("Reply withheld: blocked by a Chat Out control.");
+        await Expect(reply.Locator(".chat-meta .control-pip.is-block")).ToBeVisibleAsync();
+        await Expect(reply.Locator(".agent-summary")).ToContainTextAsync("Summary withheld");
+        await Expect(Page.Locator(".output-area .output-summary")).ToContainTextAsync("Summary withheld");
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Block: Chat Out control" })).ToHaveCountAsync(2);
+    }
+
     // --- Enter to send, Shift+Enter for a new line ---
 
     [Test]
