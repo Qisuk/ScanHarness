@@ -113,6 +113,10 @@ namespace ScanHarness.Services
                 "against a URL, or get a weather forecast."));
         }
 
+        /// <summary>Summarises the call from the tool's actual response using fixed rules.</summary>
+        public Task<ActionSummary> SummarizeAsync(string prompt, ToolCall toolCall) =>
+            Task.FromResult(new ActionSummary(ToolResultSummarizer.Summarize(toolCall)));
+
         private static string? ExtractUrl(string text)
         {
             var match = UrlRegex.Match(text);

@@ -13,18 +13,31 @@
     <header class="harness-header">
         <div>
             <h1 class="harness-title">Tool Harness</h1>
-            <p class="harness-subtitle">Ask the agent to run simulated scanning and attack tools. Every call is logged.</p>
+            <p class="harness-subtitle">Ask the agent to scan a site, run a simulated attack or get the weather. Every call is logged.</p>
         </div>
-        <div class="brain-picker" title="@(BrainSelector.LlmStatus ?? "Choose which brain decides the tool to call")">
-            <span class="agent-chip-dot @(BrainSelector.LlmStatus == null ? "" : "is-offline")"></span>
-            <label for="brain-select" class="brain-picker-label">Brain</label>
-            <select id="brain-select" class="brain-select" value="@BrainSelector.CurrentId"
-                    @onchange="OnBrainChanged" disabled="@isExecuting">
-                @foreach (var option in BrainSelector.Options)
-                {
-                    <option value="@option.Id">@option.DisplayName</option>
-                }
-            </select>
+        <div class="brain-pickers">
+            <div class="brain-picker" title="@(BrainSelector.LlmStatus ?? "Choose which brain decides the tool to call")">
+                <span class="agent-chip-dot @(BrainSelector.LlmStatus == null ? "" : "is-offline")"></span>
+                <label for="brain-select" class="brain-picker-label">Decide</label>
+                <select id="brain-select" class="brain-select" value="@BrainSelector.CurrentId"
+                        @onchange="OnBrainChanged" disabled="@isExecuting">
+                    @foreach (var option in BrainSelector.Options)
+                    {
+                        <option value="@option.Id">@option.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="brain-picker" title="Choose which brain summarises each finished action">
+                <span class="agent-chip-dot @(BrainSelector.LlmStatus == null ? "" : "is-offline")"></span>
+                <label for="summary-brain-select" class="brain-picker-label">Summary</label>
+                <select id="summary-brain-select" class="brain-select" value="@BrainSelector.SummaryBrainId"
+                        @onchange="OnSummaryBrainChanged" disabled="@isExecuting">
+                    @foreach (var option in BrainSelector.SummaryOptions)
+                    {
+                        <option value="@option.Id">@option.DisplayName</option>
+                    }
+                </select>
+            </div>
         </div>
     </header>
 
@@ -71,7 +84,7 @@
                                    placeholder="e.g. scan example.com for links, or attack example.com" />
                             <button class="btn btn-primary px-4" @onclick="SubmitPrompt"
                                     disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting)">
-                                @(isThinking ? "Thinking..." : isExecuting ? "Working..." : "Send")
+                                @(isThinking ? "Thinking..." : isSummarizing ? "Summarizing..." : isExecuting ? "Working..." : "Send")
                             </button>
                         </div>
 
@@ -80,6 +93,14 @@
                             <div class="agent-message mt-3">
                                 <span class="agent-message-label">Agent</span>
                                 <span>@agentMessage</span>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(agentSummary))
+                        {
+                            <div class="agent-summary mt-2">
+                                <span class="agent-message-label">Summary</span>
+                                <span>@agentSummary</span>
                             </div>
                         }
                     </div>
@@ -155,6 +176,12 @@
     // True while the brain is deciding (LLM brains can take several seconds), before any tool runs.
     private bool isThinking = false;
 
+    // True while the brain summarises a finished tool call.
+    private bool isSummarizing = false;
+
+    // The brain's summary of the last finished action, shown under the agent's decision.
+    private string agentSummary = "";
+
     protected override async Task OnInitializedAsync()
     {
         ToolCallService.OnToolCallsChanged += OnToolCallsChanged;
@@ -168,7 +195,18 @@
     {
         if (BrainSelector.Select(e.Value?.ToString() ?? ""))
         {
-            LogService.LogUser($"Switched brain to {BrainSelector.Current.Name}", brain: BrainSelector.Current.Name);
+            LogService.LogUser($"Switched decision brain to {BrainSelector.Current.Name}", brain: BrainSelector.Current.Name);
+        }
+    }
+
+    private void OnSummaryBrainChanged(ChangeEventArgs e)
+    {
+        if (BrainSelector.SelectSummary(e.Value?.ToString() ?? ""))
+        {
+            var target = BrainSelector.SummaryBrainId == AgentBrainSelector.SameAsDecisionId
+                ? "the decision brain"
+                : BrainSelector.SummaryBrain.Name;
+            LogService.LogUser($"Switched summary brain to {target}", brain: BrainSelector.SummaryBrain.Name);
         }
     }
 
@@ -233,6 +271,7 @@
         isExecuting = true;
         var userPrompt = prompt.Trim();
         agentMessage = "";
+        agentSummary = "";
 
         // Record in history (skip consecutive duplicates) and clear the input.
         if (promptHistory.LastOrDefault() != userPrompt)
@@ -280,18 +319,51 @@
 
             // The approval requirement comes from the agent's decision, not the user.
             // The confirmation modal only appears when the chosen tool requires approval.
-            await ToolCallService.ExecuteToolAsync(
+            var toolCall = await ToolCallService.ExecuteToolAsync(
                 decision.Tool,
                 decision.Action,
                 decision.Parameters,
                 decision.RequiresApproval,
                 brain.Name
             );
+
+            await SummarizeAsync(BrainSelector.SummaryBrain, userPrompt, toolCall);
         }
         finally
         {
             isExecuting = false;
         }
+    }
+
+    // After every tool call (completed, failed or rejected) the summary brain (the decision brain unless
+    // another is chosen) summarises what was asked and what the tool returned; the summary is shown to
+    // the user, stored on the call and logged against the summary brain.
+    private async Task SummarizeAsync(IAgentBrain brain, string userPrompt, ToolCall toolCall)
+    {
+        isSummarizing = true;
+        await InvokeAsync(StateHasChanged);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        ActionSummary summary;
+        try
+        {
+            summary = await brain.SummarizeAsync(userPrompt, toolCall);
+        }
+        finally
+        {
+            isSummarizing = false;
+        }
+
+        toolCall.Summary = summary.Text;
+        toolCall.SummaryBrain = brain.Name;
+        agentSummary = summary.Text;
+
+        if (summary.FallbackReason != null)
+        {
+            LogService.LogWarning($"Brain couldn't summarise ({summary.FallbackReason}); used the rule-based summary", toolCall.Id, brain: brain.Name);
+        }
+
+        LogService.LogSummary($"{summary.Text} · {stopwatch.Elapsed.TotalSeconds:0.0}s", toolCall.Id, brain: brain.Name);
     }
 
     private void ApproveToolCall()
@@ -351,6 +423,17 @@
         color: var(--sh-text-muted);
         margin: 0;
     }
+
+    .brain-pickers {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+    }
+
+        .brain-pickers .brain-picker-label {
+            min-width: 4.5rem;
+        }
 
     .brain-picker {
         display: inline-flex;
@@ -464,6 +547,22 @@
         border-radius: var(--sh-radius-sm);
         font-size: 0.9rem;
     }
+
+    .agent-summary {
+        display: flex;
+        gap: 0.6rem;
+        align-items: baseline;
+        padding: 0.65rem 0.85rem;
+        background: var(--sh-success-soft);
+        border: 1px solid #c6f0d6;
+        border-left: 3px solid var(--sh-success);
+        border-radius: var(--sh-radius-sm);
+        font-size: 0.9rem;
+    }
+
+        .agent-summary .agent-message-label {
+            color: var(--sh-success);
+        }
 
     .agent-message-label {
         font-size: 0.7rem;

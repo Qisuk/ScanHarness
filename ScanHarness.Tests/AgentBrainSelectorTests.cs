@@ -107,6 +107,70 @@ namespace ScanHarness.Tests
         }
 
         [Fact]
+        public async Task Summary_brain_follows_the_decision_brain_by_default()
+        {
+            var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson));
+            await selector.InitializeAsync();
+
+            Assert.Equal(AgentBrainSelector.SameAsDecisionId, selector.SummaryBrainId);
+            Assert.Same(selector.Current, selector.SummaryBrain);
+
+            selector.Select("llama3.2:3b");
+            Assert.Same(selector.Current, selector.SummaryBrain);
+        }
+
+        [Fact]
+        public async Task Summary_brain_can_differ_from_the_decision_brain()
+        {
+            var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson));
+            await selector.InitializeAsync();
+
+            Assert.True(selector.SelectSummary("qwen2.5:3b"));
+
+            Assert.IsType<KeywordAgentBrain>(selector.Current);
+            var summary = Assert.IsType<OpenAiCompatibleAgentBrain>(selector.SummaryBrain);
+            Assert.Equal("qwen2.5:3b", summary.Model);
+
+            // Choosing the same model for decisions reuses the same brain instance.
+            selector.Select("qwen2.5:3b");
+            Assert.Same(selector.Current, selector.SummaryBrain);
+        }
+
+        [Fact]
+        public async Task Summary_options_start_with_same_as_decision_then_every_brain()
+        {
+            var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson));
+            await selector.InitializeAsync();
+
+            Assert.Equal(
+                new[] { AgentBrainSelector.SameAsDecisionId, AgentBrainSelector.KeywordBrainId, "llama3.2:3b", "qwen2.5:3b" },
+                selector.SummaryOptions.Select(o => o.Id));
+        }
+
+        [Fact]
+        public async Task SelectSummary_ignores_unknown_ids()
+        {
+            var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson));
+            await selector.InitializeAsync();
+
+            Assert.False(selector.SelectSummary("not-installed:7b"));
+            Assert.Equal(AgentBrainSelector.SameAsDecisionId, selector.SummaryBrainId);
+        }
+
+        [Fact]
+        public async Task Default_summary_model_is_applied_independently_of_the_decision_default()
+        {
+            var options = new LlmOptions { DefaultModel = "llama3.2:3b", DefaultSummaryModel = AgentBrainSelector.KeywordBrainId };
+            var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson), options);
+
+            await selector.InitializeAsync();
+
+            Assert.Equal("llama3.2:3b", selector.CurrentId);
+            Assert.Equal(AgentBrainSelector.KeywordBrainId, selector.SummaryBrainId);
+            Assert.IsType<KeywordAgentBrain>(selector.SummaryBrain);
+        }
+
+        [Fact]
         public async Task Select_switches_brains_and_ignores_unknown_ids()
         {
             var selector = SelectorFor(FakeHttpMessageHandler.Returning(ModelsJson));

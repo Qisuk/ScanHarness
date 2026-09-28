@@ -10,13 +10,17 @@ namespace ScanHarness.Services
     public sealed record BrainOption(string Id, string DisplayName, bool IsLlm);
 
     /// <summary>
-    /// Holds the per-user choice of agent brain. Offers the rule-based keyword brain plus one
-    /// brain per model served by the configured OpenAI-compatible endpoint, and falls back to
-    /// the keyword brain when the endpoint is disabled or unreachable.
+    /// Holds the per-user choice of agent brains: one that decides which tool to call and one that
+    /// summarises each finished action (by default the same brain). Offers the rule-based keyword
+    /// brain plus one brain per model served by the configured OpenAI-compatible endpoint, and falls
+    /// back to the keyword brain when the endpoint is disabled or unreachable.
     /// </summary>
     public class AgentBrainSelector
     {
         public const string KeywordBrainId = "keyword";
+
+        /// <summary>Summary-brain id meaning "use whichever brain made the decision".</summary>
+        public const string SameAsDecisionId = "same";
 
         private static readonly TimeSpan ModelListTimeout = TimeSpan.FromSeconds(5);
 
@@ -44,7 +48,7 @@ namespace ScanHarness.Services
             Current = keywordBrain;
         }
 
-        /// <summary>The brain that handles the next prompt.</summary>
+        /// <summary>The brain that decides which tool to call for the next prompt.</summary>
         public IAgentBrain Current { get; private set; }
 
         /// <summary>Id of <see cref="Current"/>.</summary>
@@ -52,6 +56,16 @@ namespace ScanHarness.Services
 
         /// <summary>Brains the user can choose from; the keyword brain is always first.</summary>
         public IReadOnlyList<BrainOption> Options => _choices;
+
+        /// <summary>Id of the summary brain, or <see cref="SameAsDecisionId"/> to follow the decision brain.</summary>
+        public string SummaryBrainId { get; private set; } = SameAsDecisionId;
+
+        /// <summary>The brain that summarises finished actions.</summary>
+        public IAgentBrain SummaryBrain => SummaryBrainId == SameAsDecisionId ? Current : GetOrCreateBrain(SummaryBrainId);
+
+        /// <summary>Choices for the summary brain: "Same as decision" followed by every brain.</summary>
+        public IReadOnlyList<BrainOption> SummaryOptions =>
+            new[] { new BrainOption(SameAsDecisionId, "Same as decision", IsLlm: false) }.Concat(_choices).ToList();
 
         /// <summary>
         /// Describes a problem with the LLM endpoint for the UI: null when models were listed
@@ -104,21 +118,21 @@ namespace ScanHarness.Services
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(_options.DefaultModel))
+            if (!string.IsNullOrWhiteSpace(_options.DefaultModel) && !Select(_options.DefaultModel) && CurrentId != _options.DefaultModel)
             {
-                if (_choices.Any(o => o.Id == _options.DefaultModel))
-                {
-                    Select(_options.DefaultModel);
-                }
-                else
-                {
-                    _logger.LogWarning("Default model {Model} is not served by {BaseUrl}; starting with the keyword brain.",
-                        _options.DefaultModel, _llmClient.BaseAddress);
-                }
+                _logger.LogWarning("Default model {Model} is not served by {BaseUrl}; starting with the keyword brain.",
+                    _options.DefaultModel, _llmClient.BaseAddress);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_options.DefaultSummaryModel) && !SelectSummary(_options.DefaultSummaryModel)
+                && SummaryBrainId != _options.DefaultSummaryModel)
+            {
+                _logger.LogWarning("Default summary model {Model} is not served by {BaseUrl}; summaries use the decision brain.",
+                    _options.DefaultSummaryModel, _llmClient.BaseAddress);
             }
         }
 
-        /// <summary>Switches to the brain with the given id. Unknown ids are ignored.</summary>
+        /// <summary>Switches the decision brain to the brain with the given id. Unknown ids are ignored.</summary>
         /// <returns>True when the selection changed.</returns>
         public bool Select(string id)
         {
@@ -127,15 +141,37 @@ namespace ScanHarness.Services
                 return false;
             }
 
+            Current = GetOrCreateBrain(id);
+            CurrentId = id;
+            return true;
+        }
+
+        /// <summary>
+        /// Switches the summary brain to the brain with the given id, or to <see cref="SameAsDecisionId"/>.
+        /// Unknown ids are ignored.
+        /// </summary>
+        /// <returns>True when the selection changed.</returns>
+        public bool SelectSummary(string id)
+        {
+            if (id == SummaryBrainId || (id != SameAsDecisionId && !_choices.Any(o => o.Id == id)))
+            {
+                return false;
+            }
+
+            SummaryBrainId = id;
+            return true;
+        }
+
+        // One instance per brain, shared by the decision and summary roles.
+        private IAgentBrain GetOrCreateBrain(string id)
+        {
             if (!_brains.TryGetValue(id, out var brain))
             {
                 brain = new OpenAiCompatibleAgentBrain(_llmClient, id, _options.DecisionMode, _options.Temperature);
                 _brains[id] = brain;
             }
 
-            Current = brain;
-            CurrentId = id;
-            return true;
+            return brain;
         }
     }
 }

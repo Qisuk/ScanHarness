@@ -14,5 +14,13 @@ namespace ScanHarness.Services
 
         /// <summary>Interpret the user's prompt and decide which tool to call.</summary>
         Task<ToolDecision> DecideAsync(string prompt);
+
+        /// <summary>
+        /// Summarise a finished tool call for the user: what they asked for and what the tool returned
+        /// (or that it failed or was rejected). Called after every tool call, whatever its outcome.
+        /// </summary>
+        /// <param name="prompt">The user's original request.</param>
+        /// <param name="toolCall">The finished call, including its status and the tool's response.</param>
+        Task<ActionSummary> SummarizeAsync(string prompt, ToolCall toolCall);
     }
 }

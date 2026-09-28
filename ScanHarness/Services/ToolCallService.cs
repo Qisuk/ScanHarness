@@ -74,6 +74,7 @@ namespace ScanHarness.Services
             catch (Exception ex)
             {
                 toolCall.Status = ToolCallStatus.Failed;
+                toolCall.Error = ex.Message;
                 _logService.LogError($"Tool call failed: {tool}/{action} - {ex.Message}", toolCall.Id, brain: brain);
             }
 
