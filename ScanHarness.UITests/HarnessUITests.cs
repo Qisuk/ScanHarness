@@ -631,6 +631,109 @@ public class HarnessUITests : PageTest
         Assert.That(name, Is.EqualTo("none"));
     }
 
+    // --- Control reporting ---
+
+    [Test]
+    public async Task Session_report_lists_controls_tripped_with_pips_before_the_tools()
+    {
+        await GotoHarnessAsync();
+        await SendAndWaitAsync("scan example.com/<script>alert for links");
+        await SummariseSessionButton.ClickAsync();
+
+        var trips = Page.Locator(".session-controls-table tbody tr");
+        await Expect(trips).ToHaveCountAsync(2, new() { Timeout = 15000 }); // the reply and its summary
+
+        // The Controls tripped section comes before Tools called.
+        var titles = await Page.Locator(".tab-panel > .sh-box > .sh-box-title").AllInnerTextsAsync();
+        Assert.That(titles.Select(t => t.ToUpperInvariant()), Is.EqualTo(new[] { "SESSION SUMMARY", "CONTROLS TRIPPED", "TOOLS CALLED" }));
+        await Expect(trips.Nth(0)).ToContainTextAsync("Block");
+        await Expect(trips.Nth(0)).ToContainTextAsync("<script>");
+
+        // One pip per control tripped on the session summary.
+        await Expect(Page.Locator(".session-pips .control-pip.is-block")).ToHaveCountAsync(2);
+        await Expect(Page.Locator(".session-pips")).ToContainTextAsync("0 warnings · 2 blocks");
+    }
+
+    [Test]
+    public async Task Sessions_are_coloured_by_the_most_severe_control_tripped()
+    {
+        await GotoHarnessAsync();
+        await SwitchUserAsync("raccoon");
+        await SendAndWaitAsync("what's the weather in Quito?");
+        await Expect(SessionSelect.Locator("option.severity-none", new() { HasText = "Quito" })).ToHaveCountAsync(1);
+
+        await SendAndWaitAsync("scan example.com/<script>alert for links");
+        var option = SessionSelect.Locator("option", new() { HasText = "Quito" });
+        await Expect(option).ToHaveClassAsync(new Regex("severity-block"));
+        await Expect(option).ToContainTextAsync("2 blocks"); // spelled out, not only coloured
+        await Expect(Page.Locator(".brain-picker .severity-dot")).ToHaveClassAsync(new Regex("severity-block"));
+    }
+
+    [Test]
+    public async Task Admin_starts_on_all_activity_and_can_filter_it()
+    {
+        await GotoHarnessAsync();
+        await SwitchUserAsync("blob");
+        await SendAndWaitAsync("what's the weather in Hanoi?");
+        await PromptInput.FillAsync("scan hanoi.example.com BadInstruction");
+        await SendButton.ClickAsync();
+        await Expect(UserBubbles).ToHaveCountAsync(2, new() { Timeout = 15000 });
+
+        await SwitchUserAsync("admin");
+        await Expect(Page.GetByRole(AriaRole.Tab, new() { Name = "All activity" })).ToHaveAttributeAsync("aria-selected", "true");
+
+        var rows = Page.Locator(".activity-row");
+        // Match on the request cell only: each row also shows its session title (the session's first request).
+        ILocator RowFor(string request) => rows.Filter(new() { Has = Page.Locator(".activity-prompt", new() { HasText = request }) });
+        var weatherRow = RowFor("weather in Hanoi");
+        await Expect(weatherRow).ToHaveCountAsync(1);
+        await Expect(RowFor("hanoi.example.com")).ToHaveCountAsync(1);
+
+        // Only blob's blocked requests.
+        await Page.Locator("#activity-user").SelectOptionAsync("blob");
+        await Page.Locator("#activity-controls").SelectOptionAsync("Block");
+        await Expect(RowFor("hanoi.example.com")).ToHaveCountAsync(1);
+        await Expect(weatherRow).ToHaveCountAsync(0);
+        await Expect(rows.First).ToHaveClassAsync(new Regex("severity-row-block"));
+
+        // A time range in the future matches nothing.
+        await Page.Locator("#activity-from").FillAsync(DateTime.Now.AddDays(1).ToString("yyyy-MM-ddTHH:mm"));
+        await Expect(Page.Locator(".activity-results")).ToContainTextAsync("No requests match these filters.");
+
+        // Reset, then open a request: its session opens in the chat.
+        await Page.Locator(".activity-reset").ClickAsync();
+        await weatherRow.ClickAsync();
+        await Expect(Page.GetByRole(AriaRole.Tab, new() { Name = "Main" })).ToHaveAttributeAsync("aria-selected", "true");
+        await Expect(UserBubbles.Filter(new() { HasText = "what's the weather in Hanoi?" })).ToHaveCountAsync(1);
+    }
+
+    [Test]
+    public async Task Admin_can_summarise_the_activity_in_the_selected_window()
+    {
+        await GotoHarnessAsync();
+        await SwitchUserAsync("raccoon");
+        await SendAndWaitAsync("what's the weather in Lima?");
+
+        await SwitchUserAsync("admin");
+        await Page.Locator("#activity-user").SelectOptionAsync("raccoon");
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Summarise activity" }).ClickAsync();
+
+        var summary = Page.Locator(".activity-summary");
+        await Expect(summary.Locator(".activity-summary-window")).ToContainTextAsync("raccoon · any time", new() { Timeout = 15000 });
+        await Expect(summary.Locator(".activity-summary-window")).ToContainTextAsync("by 1 user");
+        await Expect(summary).ToContainTextAsync("raccoon made"); // the (keyword) summary brain's per-user line
+        await Expect(summary).ToContainTextAsync("weather forecast for Lima");
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Activity summary (raccoon · any time" })).ToBeVisibleAsync();
+    }
+
+    [Test]
+    public async Task All_activity_is_only_offered_to_admin()
+    {
+        await GotoHarnessAsync();
+
+        await Expect(Page.GetByRole(AriaRole.Tab, new() { Name = "All activity" })).ToHaveCountAsync(0);
+    }
+
     // --- Enter to send, Shift+Enter for a new line ---
 
     [Test]

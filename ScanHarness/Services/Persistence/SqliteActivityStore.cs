@@ -233,7 +233,9 @@ namespace ScanHarness.Services.Persistence
                 using var command = connection.CreateCommand();
                 command.CommandText = """
                     SELECT s.id, s.user_name, s.started_at, s.last_activity_at, s.title,
-                           (SELECT COUNT(*) FROM tool_calls t WHERE t.session_id = s.id)
+                           (SELECT COUNT(*) FROM tool_calls t WHERE t.session_id = s.id),
+                           (SELECT COUNT(*) FROM log_entries l WHERE l.session_id = s.id AND l.level = 'Warning' AND l.data_json LIKE '%"controls"%'),
+                           (SELECT COUNT(*) FROM log_entries l WHERE l.session_id = s.id AND l.level = 'Block')
                     FROM sessions s
                     WHERE $user IS NULL OR s.user_name = $user
                     ORDER BY s.last_activity_at DESC, s.id;
@@ -251,7 +253,9 @@ namespace ScanHarness.Services.Persistence
                 using var command = connection.CreateCommand();
                 command.CommandText = """
                     SELECT s.id, s.user_name, s.started_at, s.last_activity_at, s.title,
-                           (SELECT COUNT(*) FROM tool_calls t WHERE t.session_id = s.id)
+                           (SELECT COUNT(*) FROM tool_calls t WHERE t.session_id = s.id),
+                           (SELECT COUNT(*) FROM log_entries l WHERE l.session_id = s.id AND l.level = 'Warning' AND l.data_json LIKE '%"controls"%'),
+                           (SELECT COUNT(*) FROM log_entries l WHERE l.session_id = s.id AND l.level = 'Block')
                     FROM sessions s
                     WHERE s.id = $id;
                     """;
@@ -345,6 +349,30 @@ namespace ScanHarness.Services.Persistence
             }
         }
 
+        public IReadOnlyList<string> SessionIdsWithActivity(DateTime? fromUtc, DateTime? toUtc)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT DISTINCT session_id FROM log_entries
+                    WHERE ($from IS NULL OR timestamp >= $from) AND ($to IS NULL OR timestamp <= $to);
+                    """;
+                command.Parameters.AddWithValue("$from", DbValue(fromUtc));
+                command.Parameters.AddWithValue("$to", DbValue(toUtc));
+
+                var ids = new List<string>();
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    ids.Add(reader.GetString(0));
+                }
+
+                return ids;
+            }
+        }
+
         public IReadOnlyDictionary<string, Controls.ControlMode> LoadControlSettings(string userName)
         {
             lock (_gate)
@@ -416,6 +444,8 @@ namespace ScanHarness.Services.Persistence
                     LastActivityAt = Parse(reader.GetString(3)),
                     Title = GetNullableString(reader, 4),
                     ToolCallCount = reader.GetInt32(5),
+                    ControlWarningCount = reader.GetInt32(6),
+                    ControlBlockCount = reader.GetInt32(7),
                 });
             }
 

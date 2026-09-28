@@ -121,6 +121,10 @@ namespace ScanHarness.Services
         public Task<ActionSummary> SummarizeSessionAsync(IReadOnlyList<ToolCall> toolCalls) =>
             Task.FromResult(new ActionSummary(SessionReportBuilder.CombineSummaries(toolCalls)));
 
+        /// <summary>Summarises activity across sessions using fixed rules.</summary>
+        public Task<ActionSummary> SummarizeActivityAsync(IReadOnlyList<ActivityRow> rows, string window) =>
+            Task.FromResult(new ActionSummary(ActivitySummaryBuilder.Combine(rows, window)));
+
         private static string? ExtractUrl(string text)
         {
             var match = UrlRegex.Match(text);

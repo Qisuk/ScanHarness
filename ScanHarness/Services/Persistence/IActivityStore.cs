@@ -38,6 +38,9 @@ namespace ScanHarness.Services.Persistence
         /// <summary>A session's log entries, oldest first.</summary>
         IReadOnlyList<LogEntry> LoadLogs(string sessionId);
 
+        /// <summary>Ids of sessions with any log entry in the time range (UTC; null bounds are open).</summary>
+        IReadOnlyList<string> SessionIdsWithActivity(DateTime? fromUtc, DateTime? toUtc);
+
         /// <summary>A user's control settings by control id (controls they haven't changed are absent).</summary>
         IReadOnlyDictionary<string, Controls.ControlMode> LoadControlSettings(string userName);
 

@@ -151,6 +151,94 @@ namespace ScanHarness.Services.Llm
             }
         }
 
+        /// <summary>
+        /// Asks the model to summarise activity across users and sessions. It only sees what the controls
+        /// allowed (see <see cref="ActivitySummaryBuilder"/>); the word limit is enforced on the reply and
+        /// failures fall back to the rule-based summary.
+        /// </summary>
+        public async Task<ActionSummary> SummarizeActivityAsync(IReadOnlyList<ActivityRow> rows, string window)
+        {
+            if (rows.Count == 0)
+            {
+                return new ActionSummary(ActivitySummaryBuilder.NoActivity);
+            }
+
+            try
+            {
+                var response = await _client.CreateChatCompletionAsync(BuildActivitySummaryRequest(rows, window));
+                var text = CleanSessionSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
+                if (text.Length > 0)
+                {
+                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords));
+                }
+
+                return new ActionSummary(ActivitySummaryBuilder.Combine(rows, window), "the model returned an empty summary");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
+            {
+                var reason = ex is TaskCanceledException ? "the request timed out" : ex.Message;
+                return new ActionSummary(ActivitySummaryBuilder.Combine(rows, window), reason);
+            }
+        }
+
+        /// <summary>Most requests sent to the model in one activity summary (the most recent ones).</summary>
+        internal const int MaxActivityRequestsForModel = 200;
+
+        /// <summary>Builds the activity summary request: the window, the overview, and each request's safe outcome, oldest first.</summary>
+        internal JsonObject BuildActivitySummaryRequest(IReadOnlyList<ActivityRow> rows, string window)
+        {
+            var included = rows
+                .OrderByDescending(r => r.Turn.RequestedAt)
+                .Take(MaxActivityRequestsForModel)
+                .OrderBy(r => r.Turn.RequestedAt)
+                .ToList();
+
+            var requests = new JsonArray();
+            foreach (var row in included)
+            {
+                requests.Add(new JsonObject
+                {
+                    ["time"] = row.Turn.RequestedAt.ToString("O"),
+                    ["user"] = row.Turn.UserName,
+                    ["request"] = ActivitySummaryBuilder.SafePrompt(row),
+                    ["tool"] = row.Turn.ToolCall == null ? null : $"{row.Turn.ToolCall.Tool}/{row.Turn.ToolCall.Action}",
+                    ["status"] = row.Turn.ToolCall?.Status.ToString(),
+                    ["outcome"] = ActivitySummaryBuilder.Outcome(row),
+                    ["controls"] = new JsonArray(row.Controls
+                        .Select(v => (JsonNode?)$"{(v.Mode == Controls.ControlMode.Block ? "Block" : "Warning")}: {v.StageName} '{v.Name}' on the {v.Target}")
+                        .ToArray()),
+                });
+            }
+
+            var context = new JsonObject
+            {
+                ["window"] = window,
+                ["overview"] = ActivitySummaryBuilder.Overview(rows).Describe(),
+                ["requests_not_included"] = rows.Count - included.Count,
+                ["requests"] = requests,
+            };
+
+            return new JsonObject
+            {
+                ["model"] = Model,
+                ["temperature"] = _temperature,
+                ["stream"] = false,
+                ["max_tokens"] = 800,
+                ["messages"] = Messages(ActivitySummaryInstructions, context.ToJsonString()),
+            };
+        }
+
+        private const string ActivitySummaryInstructions =
+            "You summarise activity in ScanHarness (a demo harness whose tools are simulations) for an administrator.\n" +
+            "You are given a time window, an overview, and the requests users made in it, each with its outcome and any " +
+            "guardrail controls (warnings or blocks) it tripped.\n" +
+            "Write one summary in plain prose of no more than 450 words: what happened overall, what each user did, which " +
+            "tools were used and how they went, and every warning and block (who, and what the control was). Mention if " +
+            "some requests were not included.\n" +
+            "Use only facts from the given data. Never invent findings, numbers, names or URLs, and never guess at content " +
+            "marked withheld or blocked.\n" +
+            "Plain text only: no markdown, headings or bullet lists. Short paragraphs are fine.";
+
         /// <summary>Builds the session summary request: each call's outcome and summary, oldest first.</summary>
         internal JsonObject BuildSessionSummaryRequest(IReadOnlyList<ToolCall> toolCalls)
         {

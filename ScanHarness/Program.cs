@@ -30,6 +30,8 @@ builder.Services.AddSingleton<IActivityStore>(sp =>
 builder.Services.AddScoped<SessionState>();
 // Guardrails (Chat In, Chat Out, ToolRule) with each user's Off/Advise/Block settings.
 builder.Services.AddScoped<ScanHarness.Services.Controls.ControlService>();
+// Cross-user activity search for the admin's All activity view.
+builder.Services.AddScoped<ActivityExplorer>();
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<ToolCallService>();
 // Agent "brains" that decide which tool to call: the rule-based keyword brain, plus one brain

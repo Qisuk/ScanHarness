@@ -186,10 +186,18 @@ namespace ScanHarness.Services
             public const string ToolCall = "tool call";
             public const string Summary = "summary";
             public const string SessionSummary = "session summary";
+
+            /// <summary>The admin's summary of all activity; not part of the chat, so the transcript ignores it.</summary>
+            public const string ActivitySummary = "activity summary";
         }
 
         private static void AttachControls(List<ChatTurn> turns, ChatTurn? current, string? target, IReadOnlyList<ControlViolation> violations)
         {
+            if (target == Targets.ActivitySummary)
+            {
+                return;
+            }
+
             if (target == Targets.SessionSummary)
             {
                 turns.LastOrDefault(t => t.Kind == ChatTurnKind.SessionSummary)?.ReplyControls.AddRange(violations);

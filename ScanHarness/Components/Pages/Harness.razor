@@ -29,6 +29,7 @@
                 </select>
             </div>
             <div class="brain-picker" title="Open a saved session to see everything that happened in it, or start a new one">
+                <span class="severity-dot severity-@CurrentSeverity" title="@SeverityTitle(CurrentSeverity)"></span>
                 <label for="session-select" class="brain-picker-label">Session</label>
                 <select id="session-select" class="brain-select session-select" value="@Session.Current.Id"
                         @onchange="OnSessionChanged" disabled="@IsBusy">
@@ -38,7 +39,7 @@
                     }
                     @foreach (var saved in savedSessions)
                     {
-                        <option value="@saved.Id">@DescribeSession(saved)</option>
+                        <option value="@saved.Id" class="session-option severity-@saved.ControlSeverity">● @DescribeSession(saved)</option>
                     }
                 </select>
                 <button type="button" class="box-link" title="Start a new session" disabled="@(IsBusy || !Session.IsSaved)"
@@ -75,11 +76,16 @@
     <section class="console-main">
         <div class="box-tabs" role="tablist">
             <button type="button" role="tab" class="box-tab @(activeTab == "main" ? "active" : "")"
-                    aria-selected="@(activeTab == "main")" @onclick='() => activeTab = "main"'>Main</button>
+                    aria-selected="@(activeTab == "main" ? "true" : "false")" @onclick='() => activeTab = "main"'>Main</button>
             <button type="button" role="tab" class="box-tab @(activeTab == "history" ? "active" : "")"
-                    aria-selected="@(activeTab == "history")" @onclick='() => activeTab = "history"'>History</button>
+                    aria-selected="@(activeTab == "history" ? "true" : "false")" @onclick='() => activeTab = "history"'>History</button>
             <button type="button" role="tab" class="box-tab @(activeTab == "session" ? "active" : "")"
-                    aria-selected="@(activeTab == "session")" @onclick='() => activeTab = "session"'>Session</button>
+                    aria-selected="@(activeTab == "session" ? "true" : "false")" @onclick='() => activeTab = "session"'>Session</button>
+            @if (ShowUsers)
+            {
+                <button type="button" role="tab" class="box-tab @(activeTab == "activity" ? "active" : "")"
+                        aria-selected="@(activeTab == "activity" ? "true" : "false")" @onclick='() => activeTab = "activity"'>All activity</button>
+            }
 
             <button type="button" class="btn btn-sm btn-outline-secondary box-tabs-action"
                     title="Summarise every action in this session using the summary brain, and list the tools called"
@@ -161,6 +167,12 @@
             @if (activeTab == "session")
             {
                 <SessionSummaryTab Report="sessionReport" IsGenerating="isSummarizingSession" ShowUsers="ShowUsers" />
+            }
+
+            <!-- All activity (admin only): every user's requests with filters -->
+            @if (activeTab == "activity" && ShowUsers)
+            {
+                <AllActivityTab OnOpen="OpenFromActivity" />
             }
         </div>
     </section>
@@ -272,12 +284,27 @@
 
     private void RefreshSessions() => savedSessions = Session.VisibleSessions();
 
+    // Severity of the current session's control hits ("none", "warning" or "block"), from the saved list.
+    private string CurrentSeverity =>
+        savedSessions.FirstOrDefault(s => s.Id == Session.Current.Id)?.ControlSeverity ?? "none";
+
+    private static string SeverityTitle(string severity) => severity switch
+    {
+        "block" => "A control blocked something in this session",
+        "warning" => "A control raised a warning in this session",
+        _ => "No controls tripped in this session",
+    };
+
     private string DescribeSession(HarnessSession session)
     {
         var when = session.LastActivityAt.ToLocalTime().ToString("dd MMM HH:mm");
         var title = session.Title ?? "(no requests)";
         var owner = ShowUsers ? $"{session.UserName} · " : "";
-        return $"{owner}{when} · {title} · {session.ToolCallCount} call{(session.ToolCallCount == 1 ? "" : "s")}";
+        // Controls are spelled out too, so the colour of the option is not the only signal.
+        var controls = session.ControlSeverity == "none" ? "" :
+            " · " + string.Join(" · ", new[] { (session.ControlWarningCount, "warning"), (session.ControlBlockCount, "block") }
+                .Where(c => c.Item1 > 0).Select(c => $"{c.Item1} {c.Item2}{(c.Item1 == 1 ? "" : "s")}"));
+        return $"{owner}{when} · {title} · {session.ToolCallCount} call{(session.ToolCallCount == 1 ? "" : "s")}{controls}";
     }
 
     private void OnUserChanged(ChangeEventArgs e)
@@ -286,7 +313,22 @@
         {
             ShowSession(Array.Empty<LogEntry>(), Array.Empty<ToolCall>());
             RefreshSessions();
+
+            // Admin starts on every user's activity; other users on their own chat.
+            activeTab = ShowUsers ? "activity" : "main";
         }
+    }
+
+    // Opens a request picked in All activity: its session, with that request's tool output selected.
+    private void OpenFromActivity((string SessionId, string? ToolCallId) pick)
+    {
+        var session = Session.OpenSession(pick.SessionId);
+        if (session == null)
+            return;
+
+        ShowSession(Store.LoadLogs(session.Id), Store.LoadToolCalls(session.Id));
+        selectedToolCallId = pick.ToolCallId == lastToolCall?.Id ? null : pick.ToolCallId;
+        RefreshSessions();
     }
 
     private void OnSessionChanged(ChangeEventArgs e)
@@ -564,34 +606,8 @@
 
     private const string WithheldSummary = "Summary withheld: blocked by a Chat Out control.";
 
-    // Logs each control hit as a Warning (Advise) or Block entry, right after the entry it checked, with
-    // the details the chat needs to show pips when the session is recreated.
-    private void ReportControls(ControlCheck check, string brainName, string? toolCallId = null)
-    {
-        foreach (var violation in check.Violations)
-        {
-            var outcome = violation.Mode != ControlMode.Block
-                ? "flagged"
-                : violation.Target switch
-                {
-                    ChatTranscript.Targets.Request => "blocked; it was not sent to the brain",
-                    ChatTranscript.Targets.ToolCall => "blocked; the tool was not run",
-                    _ => "blocked; it was withheld",
-                };
-            var message = $"{(violation.Mode == ControlMode.Block ? "Block" : "Warning")}: {violation.StageName} control " +
-                          $"'{violation.Name}' {outcome} ({violation.Target}). {violation.Detail}";
-            var data = new Dictionary<string, object>
-            {
-                ["controls"] = ControlService.ToJson(new[] { violation }),
-                ["target"] = violation.Target,
-            };
-
-            if (violation.Mode == ControlMode.Block)
-                LogService.LogBlock(message, toolCallId, data, brainName);
-            else
-                LogService.LogWarning(message, toolCallId, data, brainName);
-        }
-    }
+    private void ReportControls(ControlCheck check, string brainName, string? toolCallId = null) =>
+        ControlReporter.Report(LogService, check, brainName, toolCallId);
 
     // The text ToolRule controls check: the tool, its action and its parameters.
     private static string DescribeToolCall(ToolDecision decision) =>
@@ -667,6 +683,17 @@
             },
             brain: brain.Name);
         ReportControls(check, brain.Name);
+
+        // Controls tripped in the session (including any on this summary), built from the log.
+        var trips = SessionReportBuilder.ListControlTrips(LogService.GetLogs());
+        sessionReport = sessionReport with { ControlTrips = trips };
+        if (trips.Count > 0)
+        {
+            var tripText = string.Join("; ", trips.Select(t =>
+                $"{t.Number}. {(t.Violation.Mode == ControlMode.Block ? "Block" : "Warning")} {t.Violation.StageName} '{t.Violation.Name}' on the {t.Violation.Target}"));
+            LogService.LogInfo($"Controls tripped this session: {tripText}", brain: brain.Name);
+        }
+
         RefreshSessions();
     }
 
@@ -740,6 +767,28 @@
 
     .session-select {
         max-width: 22rem;
+    }
+
+    /* Sessions are coloured by the most severe control tripped: green none, amber warning, red block. */
+    .severity-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex: none;
+    }
+
+    .severity-none { --severity: #22c55e; }
+    .severity-warning { --severity: #f59e0b; }
+    .severity-block { --severity: #ef4444; }
+
+    .severity-dot {
+        background: var(--severity);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--severity) 25%, transparent);
+    }
+
+    .session-option {
+        color: var(--severity);
+        font-weight: 600;
     }
 
     .brain-picker {

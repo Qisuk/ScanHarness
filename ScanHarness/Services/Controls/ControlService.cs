@@ -10,9 +10,14 @@ namespace ScanHarness.Services.Controls
     /// <param name="Mode">Advise or Block (a control that is Off never matches).</param>
     /// <param name="Target">What was checked, e.g. "request", "reply", "summary", "session summary" or "tool call".</param>
     /// <param name="Detail">What matched, e.g. Found "&lt;script&gt;" at character 17.</param>
-    public sealed record ControlViolation(string ControlId, string Name, ControlStage Stage, ControlMode Mode, string Target, string Detail)
+    /// <param name="Text">The text that was checked (truncated), so reports can show the message that tripped the
+    /// control. Null for hits recorded before this was stored.</param>
+    public sealed record ControlViolation(string ControlId, string Name, ControlStage Stage, ControlMode Mode, string Target, string Detail, string? Text = null)
     {
         public string StageName => ControlCatalog.StageName(Stage);
+
+        /// <summary>Longest checked text kept with a violation.</summary>
+        public const int MaxTextLength = 500;
     }
 
     /// <summary>The outcome of checking some text at one stage.</summary>
@@ -89,7 +94,8 @@ namespace ScanHarness.Services.Controls
                 var detail = control.Match(text);
                 if (detail != null)
                 {
-                    violations.Add(new ControlViolation(control.Id, control.Name, stage, mode, target, detail));
+                    var checkedText = text.Length <= ControlViolation.MaxTextLength ? text : text[..ControlViolation.MaxTextLength] + "…";
+                    violations.Add(new ControlViolation(control.Id, control.Name, stage, mode, target, detail, checkedText));
                 }
             }
 

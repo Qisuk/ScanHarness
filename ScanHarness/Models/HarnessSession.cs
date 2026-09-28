@@ -18,6 +18,15 @@ namespace ScanHarness.Models
 
         /// <summary>Number of tool calls in the session (filled in when sessions are listed).</summary>
         public int ToolCallCount { get; set; }
+
+        /// <summary>Controls that tripped in Advise mode (warnings) in the session (filled in when listed).</summary>
+        public int ControlWarningCount { get; set; }
+
+        /// <summary>Controls that tripped in Block mode in the session (filled in when listed).</summary>
+        public int ControlBlockCount { get; set; }
+
+        /// <summary>The most severe control outcome in the session: "none", "warning" or "block".</summary>
+        public string ControlSeverity => ControlBlockCount > 0 ? "block" : ControlWarningCount > 0 ? "warning" : "none";
     }
 
     /// <summary>A user who can be selected in the harness.</summary>
