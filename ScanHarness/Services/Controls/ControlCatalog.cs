@@ -31,47 +31,123 @@ namespace ScanHarness.Services.Controls
         Block
     }
 
+    /// <summary>How a control's rule matches text.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum ControlRuleType
+    {
+        /// <summary>The text contains <see cref="ControlRule.Value"/> literally.</summary>
+        Contains,
+
+        /// <summary>The text matches the .NET regular expression in <see cref="ControlRule.Value"/>.</summary>
+        Regex
+    }
+
+    /// <summary>What a control looks for.</summary>
+    public sealed class ControlRule
+    {
+        /// <summary>How long a regex may run on one message before the control gives up (and counts it as a match).</summary>
+        public static readonly TimeSpan DefaultRegexTimeout = TimeSpan.FromMilliseconds(250);
+
+        private readonly System.Text.RegularExpressions.Regex? _regex;
+
+        /// <param name="type">Plain-text contains, or a regular expression.</param>
+        /// <param name="value">The text or pattern to look for.</param>
+        /// <param name="caseSensitive">Whether letter case must match (default: no).</param>
+        /// <param name="regexTimeout">Limit for one regex match; defaults to <see cref="DefaultRegexTimeout"/>.</param>
+        /// <exception cref="ArgumentException">The value is empty or the pattern isn't a valid regex.</exception>
+        public ControlRule(ControlRuleType type, string value, bool caseSensitive = false, TimeSpan? regexTimeout = null)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                throw new ArgumentException("A control rule needs a value to look for.", nameof(value));
+            }
+
+            Type = type;
+            Value = value;
+            CaseSensitive = caseSensitive;
+
+            if (type == ControlRuleType.Regex)
+            {
+                var options = System.Text.RegularExpressions.RegexOptions.CultureInvariant
+                    | (caseSensitive ? System.Text.RegularExpressions.RegexOptions.None : System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                try
+                {
+                    _regex = new System.Text.RegularExpressions.Regex(value, options, regexTimeout ?? DefaultRegexTimeout);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new ArgumentException($"\"{value}\" is not a valid regular expression: {ex.Message}", nameof(value), ex);
+                }
+            }
+        }
+
+        public ControlRuleType Type { get; }
+
+        public string Value { get; }
+
+        public bool CaseSensitive { get; }
+
+        /// <summary>Describes what matched (e.g. Found "&lt;script&gt;" at character 17), or null if the text passes.</summary>
+        public string? Match(string text)
+        {
+            if (_regex == null)
+            {
+                var index = text.IndexOf(Value, CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+                return index < 0 ? null : $"Found \"{text.Substring(index, Value.Length)}\" at character {index + 1}.";
+            }
+
+            try
+            {
+                var match = _regex.Match(text);
+                return match.Success ? $"Matched \"{match.Value}\" at character {match.Index + 1}." : null;
+            }
+            catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+            {
+                // A guardrail must not let text through just because it was expensive to check: fail closed.
+                return $"The rule took too long to check this text (over {_regex.MatchTimeout.TotalMilliseconds:0} ms), so it counts as a match.";
+            }
+        }
+    }
+
     /// <summary>A guardrail that checks text at one stage of the flow.</summary>
     /// <param name="Id">Stable identifier, used to store each user's setting.</param>
     /// <param name="Stage">Where the control is applied.</param>
     /// <param name="Name">Short name shown on the Controls page and in pips and the log.</param>
     /// <param name="Description">What the control checks, shown on the Controls page.</param>
     /// <param name="DefaultMode">Mode used until a user changes it.</param>
-    /// <param name="Match">Returns a description of what matched, or null if the text passes.</param>
+    /// <param name="Rule">What the control looks for.</param>
     public sealed record ControlDefinition(
         string Id,
         ControlStage Stage,
         string Name,
         string Description,
         ControlMode DefaultMode,
-        Func<string, string?> Match);
+        ControlRule Rule)
+    {
+        /// <summary>Describes what matched, or null if the text passes.</summary>
+        public string? Match(string text) => Rule.Match(text);
+    }
 
     /// <summary>
-    /// Every control the harness offers. Add a control here and it appears on the Controls page
-    /// and is applied at its stage.
+    /// Every control the harness offers, read from a JSON file (<c>controls.json</c> by default; see
+    /// <see cref="Load"/> for the format). Add a control to the file and it appears on the Controls page
+    /// and is applied at its stage. The app loads the configured file at startup with <see cref="Use"/>;
+    /// until then (e.g. in unit tests) the <c>controls.json</c> next to the app is used.
     /// </summary>
     public static class ControlCatalog
     {
-        public static IReadOnlyList<ControlDefinition> All { get; } = new[]
-        {
-            new ControlDefinition(
-                Id: "chat-in-contains-badinstruction",
-                Stage: ControlStage.ChatIn,
-                Name: "Contains \"BadInstruction\"",
-                Description: "Flags a message that includes the text \"BadInstruction\" (exact, case-sensitive).",
-                DefaultMode: ControlMode.Block,
-                Match: text => Contains(text, "BadInstruction", StringComparison.Ordinal)),
+        /// <summary>The file name used when no path is configured.</summary>
+        public const string DefaultFileName = "controls.json";
 
-            new ControlDefinition(
-                Id: "chat-out-contains-script-tag",
-                Stage: ControlStage.ChatOut,
-                Name: "Contains \"<script>\"",
-                Description: "Flags a reply or summary that includes a \"<script>\" tag (any letter case).",
-                DefaultMode: ControlMode.Block,
-                Match: text => Contains(text, "<script>", StringComparison.OrdinalIgnoreCase)),
-        };
+        private static IReadOnlyList<ControlDefinition>? _all;
 
-        /// <summary>Controls applied at <paramref name="stage"/>, in catalog order.</summary>
+        public static IReadOnlyList<ControlDefinition> All =>
+            _all ??= Load(Path.Combine(AppContext.BaseDirectory, DefaultFileName));
+
+        /// <summary>Replaces the catalog, e.g. with the file configured for the app.</summary>
+        public static void Use(IReadOnlyList<ControlDefinition> controls) => _all = controls;
+
+        /// <summary>Controls applied at <paramref name="stage"/>, in file order.</summary>
         public static IEnumerable<ControlDefinition> ForStage(ControlStage stage) => All.Where(c => c.Stage == stage);
 
         /// <summary>Finds a control by id, or null.</summary>
@@ -86,11 +162,119 @@ namespace ScanHarness.Services.Controls
             _ => stage.ToString()
         };
 
-        // e.g. Found "<script>" at character 17.
-        private static string? Contains(string text, string value, StringComparison comparison)
+        /// <summary>Reads control definitions from a JSON file.</summary>
+        /// <exception cref="ControlCatalogException">The file is missing or invalid; the message says what to fix.</exception>
+        public static IReadOnlyList<ControlDefinition> Load(string path)
         {
-            var index = text.IndexOf(value, comparison);
-            return index < 0 ? null : $"Found \"{text.Substring(index, value.Length)}\" at character {index + 1}.";
+            if (!File.Exists(path))
+            {
+                throw new ControlCatalogException($"Control definitions file not found: {path}");
+            }
+
+            return Parse(File.ReadAllText(path), path);
         }
+
+        /// <summary>
+        /// Parses control definitions:
+        /// <code>
+        /// { "controls": [ { "id": "...", "stage": "ChatIn|ChatOut|ToolRule", "name": "...", "description": "...",
+        ///                   "defaultMode": "Off|Advise|Block",
+        ///                   "rule": { "type": "contains|regex", "value": "...", "caseSensitive": false } } ] }
+        /// </code>
+        /// Every problem found is reported together, so a broken file can be fixed in one go.
+        /// </summary>
+        /// <param name="source">Where the JSON came from, for error messages.</param>
+        public static IReadOnlyList<ControlDefinition> Parse(string json, string source = "controls")
+        {
+            ControlFile? file;
+            try
+            {
+                file = System.Text.Json.JsonSerializer.Deserialize<ControlFile>(json, JsonOptions);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                throw new ControlCatalogException($"{source} is not valid control JSON: {ex.Message}");
+            }
+
+            var errors = new List<string>();
+            var controls = new List<ControlDefinition>();
+            var entries = file?.Controls ?? new List<ControlEntry>();
+
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                var label = string.IsNullOrWhiteSpace(entry.Id) ? $"control #{i + 1}" : $"control \"{entry.Id}\"";
+                var before = errors.Count;
+
+                if (string.IsNullOrWhiteSpace(entry.Id)) errors.Add($"{label}: \"id\" is required.");
+                else if (controls.Any(c => c.Id == entry.Id) || entries.Take(i).Any(e => e.Id == entry.Id)) errors.Add($"{label}: the id is used more than once.");
+                if (string.IsNullOrWhiteSpace(entry.Name)) errors.Add($"{label}: \"name\" is required.");
+                if (entry.Stage == null) errors.Add($"{label}: \"stage\" must be one of {string.Join(", ", Enum.GetNames<ControlStage>())}.");
+                if (entry.DefaultMode == null) errors.Add($"{label}: \"defaultMode\" must be one of {string.Join(", ", Enum.GetNames<ControlMode>())}.");
+                if (entry.Rule?.Type == null) errors.Add($"{label}: \"rule.type\" must be \"contains\" or \"regex\".");
+
+                ControlRule? rule = null;
+                if (entry.Rule?.Type != null)
+                {
+                    try
+                    {
+                        rule = new ControlRule(entry.Rule.Type.Value, entry.Rule.Value ?? "", entry.Rule.CaseSensitive ?? false);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        errors.Add($"{label}: {ex.Message.Split(" (Parameter")[0]}");
+                    }
+                }
+
+                if (errors.Count == before)
+                {
+                    controls.Add(new ControlDefinition(entry.Id!, entry.Stage!.Value, entry.Name!, entry.Description ?? "", entry.DefaultMode!.Value, rule!));
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                throw new ControlCatalogException($"{source} has {errors.Count} problem{(errors.Count == 1 ? "" : "s")}:\n- {string.Join("\n- ", errors)}");
+            }
+
+            return controls;
+        }
+
+        private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+            AllowTrailingCommas = true,
+            Converters = { new JsonStringEnumConverter(allowIntegerValues: false) },
+        };
+
+        // The file's shape. Everything is nullable so missing values are reported, not defaulted.
+        private sealed class ControlFile
+        {
+            public List<ControlEntry>? Controls { get; set; }
+        }
+
+        private sealed class ControlEntry
+        {
+            public string? Id { get; set; }
+            public ControlStage? Stage { get; set; }
+            public string? Name { get; set; }
+            public string? Description { get; set; }
+            public ControlMode? DefaultMode { get; set; }
+            public RuleEntry? Rule { get; set; }
+        }
+
+        private sealed class RuleEntry
+        {
+            public ControlRuleType? Type { get; set; }
+            public string? Value { get; set; }
+            public bool? CaseSensitive { get; set; }
+        }
+    }
+
+    /// <summary>The control definitions file is missing or invalid.</summary>
+    public sealed class ControlCatalogException : Exception
+    {
+        public ControlCatalogException(string message) : base(message) { }
     }
 }
