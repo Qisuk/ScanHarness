@@ -26,5 +26,15 @@
             </NavLink>
         </div>
     </nav>
+
+    @* Handled by wwwroot/theme.js; stopPropagation keeps the mobile menu open while choosing. *@
+    <div class="theme-picker" onclick="event.stopPropagation()">
+        <label for="theme-select" class="theme-picker-label">Theme</label>
+        <select id="theme-select" class="theme-select" data-theme-picker>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+        </select>
+    </div>
 </div>
 

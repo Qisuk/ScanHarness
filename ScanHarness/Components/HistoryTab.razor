@@ -1,70 +1,74 @@
 @using ScanHarness.Models
 
-<div class="history-view sh-card">
-    <table class="table history-table mb-0">
-        <thead>
-            <tr>
-                <th>Time</th>
-                <th>Tool</th>
-                <th>Action</th>
-                <th>Brain</th>
-                <th>Status</th>
-                <th class="text-end">Result</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (!ToolCalls.Any())
-            {
+<div class="history-view sh-box">
+    <span class="sh-box-title">Tool call history</span>
+    <span class="sh-box-aside">@ToolCalls.Count calls · click a row for details</span>
+    <div class="history-scroll">
+        <table class="table history-table mb-0">
+            <thead>
                 <tr>
-                    <td colspan="6" class="history-empty">No tool calls yet</td>
+                    <th class="col-time">Time</th>
+                    <th class="col-tool">Tool</th>
+                    <th class="col-action">Action</th>
+                    <th>Brain</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-result text-end">Result</th>
                 </tr>
-            }
-            else
-            {
-                @foreach (var call in ToolCalls.OrderByDescending(t => t.CreatedAt))
+            </thead>
+            <tbody>
+                @if (!ToolCalls.Any())
                 {
-                    <tr class="history-row @(expandedId == call.Id ? "is-expanded" : "")"
-                        @onclick="() => expandedId = expandedId == call.Id ? null : call.Id">
-                        <td class="mono">@call.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</td>
-                        <td>@call.Tool</td>
-                        <td>@call.Action</td>
-                        <td class="history-brain">@(call.Brain ?? "—")</td>
-                        <td>
-                            <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
-                        </td>
-                        <td class="text-end">
-                            @if (!string.IsNullOrEmpty(call.Result))
-                            {
-                                <span class="history-has-result" title="Has result">✓</span>
-                            }
-                        </td>
+                    <tr>
+                        <td colspan="6" class="history-empty">No tool calls yet</td>
                     </tr>
-                    @if (expandedId == call.Id)
+                }
+                else
+                {
+                    @foreach (var call in ToolCalls.OrderByDescending(t => t.CreatedAt))
                     {
-                        <tr class="history-details-row">
-                            <td colspan="6">
-                                <div class="expanded-details">
-                                    @if (!string.IsNullOrEmpty(call.Summary))
-                                    {
-                                        <div class="output-label">Summary</div>
-                                        <p class="history-summary">@call.Summary</p>
-                                    }
-                                    <div class="output-label">Parameters</div>
-                                    <pre class="sh-code">@(call.Parameters.Count == 0 ? "(none)" : string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}")))</pre>
-
-                                    @if (!string.IsNullOrEmpty(call.Result))
-                                    {
-                                        <div class="output-label mt-3">Result</div>
-                                        <pre class="sh-code">@call.Result</pre>
-                                    }
-                                </div>
+                        <tr class="history-row @(expandedId == call.Id ? "is-expanded" : "")"
+                            @onclick="() => expandedId = expandedId == call.Id ? null : call.Id">
+                            <td class="mono">@call.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</td>
+                            <td>@call.Tool</td>
+                            <td>@call.Action</td>
+                            <td class="history-brain">@(call.Brain ?? "—")</td>
+                            <td>
+                                <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
+                            </td>
+                            <td class="text-end">
+                                @if (!string.IsNullOrEmpty(call.Result))
+                                {
+                                    <span class="history-has-result" title="Has result">✓</span>
+                                }
                             </td>
                         </tr>
+                        @if (expandedId == call.Id)
+                        {
+                            <tr class="history-details-row">
+                                <td colspan="6">
+                                    <div class="expanded-details">
+                                        @if (!string.IsNullOrEmpty(call.Summary))
+                                        {
+                                            <div class="output-label">Summary</div>
+                                            <p class="history-summary">@call.Summary</p>
+                                        }
+                                        <div class="output-label">Parameters</div>
+                                        <pre class="sh-code">@(call.Parameters.Count == 0 ? "(none)" : string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}")))</pre>
+    
+                                        @if (!string.IsNullOrEmpty(call.Result))
+                                        {
+                                            <div class="output-label mt-3">Result</div>
+                                            <pre class="sh-code">@ScanHarness.Services.JsonFormatter.Pretty(call.Result)</pre>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 }
-            }
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 @code {
@@ -76,13 +80,29 @@
 
 <style>
     .history-view {
+        padding: 0.75rem 0.4rem 0.4rem;
+    }
+
+    /* Scroll inside the box so the title set into its border is never clipped. */
+    .history-scroll {
         overflow: auto;
     }
 
+    /* Fixed layout keeps long expanded content (JSON, summaries) inside the box instead of widening the table. */
+    /* The minimum width guarantees the Brain column room; narrower panels scroll sideways instead. */
     .history-table {
-        font-size: 0.875rem;
+        table-layout: fixed;
+        width: 100%;
+        min-width: 38rem;
+        font-size: 0.85rem;
         --bs-table-bg: transparent;
     }
+
+        .history-table .col-time { width: 4.75rem; }
+        .history-table .col-tool { width: 5.5rem; }
+        .history-table .col-action { width: 7.25rem; }
+        .history-table .col-status { width: 8.25rem; }
+        .history-table .col-result { width: 3.75rem; }
 
         .history-table thead th {
             background: var(--sh-surface-muted);
@@ -92,13 +112,14 @@
             text-transform: uppercase;
             letter-spacing: 0.06em;
             border-bottom: 1px solid var(--sh-border);
-            padding: 0.65rem 1rem;
+            padding: 0.35rem 0.6rem;
         }
 
         .history-table td {
-            padding: 0.65rem 1rem;
+            padding: 0.35rem 0.6rem;
             vertical-align: middle;
             border-color: var(--sh-border);
+            overflow-wrap: anywhere;
         }
 
     .history-row {
@@ -136,7 +157,7 @@
     .history-empty {
         text-align: center;
         color: var(--sh-text-subtle);
-        padding: 2rem 1rem !important;
+        padding: 1rem !important;
     }
 
     .history-details-row td {

@@ -1,6 +1,7 @@
 @using ScanHarness.Models
 @using ScanHarness.Services
 
+@* Each part of the call sits in its own titled box; parameters and result share a row to save height. *@
 <div class="output-display">
     <div class="output-header">
         <div class="output-tool">
@@ -8,36 +9,16 @@
             <span class="output-tool-sep">/</span>
             <span>@ToolCall.Action</span>
         </div>
-        <div class="d-flex align-items-center gap-2">
-            <small class="output-time">@ToolCall.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</small>
-            <span class="badge @StatusStyles.PillClass(ToolCall.Status)">@ToolCall.Status</span>
-        </div>
+        <small class="output-time">@ToolCall.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</small>
+        <span class="badge @StatusStyles.PillClass(ToolCall.Status)">@ToolCall.Status</span>
     </div>
 
     @if (!string.IsNullOrEmpty(ToolCall.Summary))
     {
-        <p class="output-summary">@ToolCall.Summary</p>
-    }
-
-    @if (ToolCall.Parameters.Any() || ToolCall.Brain != null)
-    {
-        <dl class="output-params">
-            @if (ToolCall.Brain != null)
-            {
-                <dt>brain</dt>
-                <dd>@ToolCall.Brain</dd>
-            }
-            @if (ToolCall.SummaryBrain != null && ToolCall.SummaryBrain != ToolCall.Brain)
-            {
-                <dt>summary brain</dt>
-                <dd>@ToolCall.SummaryBrain</dd>
-            }
-            @foreach (var param in ToolCall.Parameters)
-            {
-                <dt>@param.Key</dt>
-                <dd>@param.Value</dd>
-            }
-        </dl>
+        <div class="sh-box sh-box-success output-summary">
+            <span class="sh-box-title">Summary</span>
+            @ToolCall.Summary
+        </div>
     }
 
     @if (ToolCall.Status == ToolCallStatus.Failed)
@@ -45,11 +26,39 @@
         <div class="output-alert">Tool execution failed@(string.IsNullOrEmpty(ToolCall.Error) ? "." : $": {ToolCall.Error}")</div>
     }
 
-    @if (!string.IsNullOrEmpty(ToolCall.Result))
-    {
-        <div class="output-label">Result</div>
-        <pre class="result-json sh-code">@FormatResult()</pre>
-    }
+    <div class="output-row">
+        @if (ToolCall.Parameters.Any() || ToolCall.Brain != null)
+        {
+            <div class="sh-box output-params-box">
+                <span class="sh-box-title">Parameters</span>
+                <dl class="output-params">
+                    @if (ToolCall.Brain != null)
+                    {
+                        <dt>brain</dt>
+                        <dd>@ToolCall.Brain</dd>
+                    }
+                    @if (ToolCall.SummaryBrain != null && ToolCall.SummaryBrain != ToolCall.Brain)
+                    {
+                        <dt>summary brain</dt>
+                        <dd>@ToolCall.SummaryBrain</dd>
+                    }
+                    @foreach (var param in ToolCall.Parameters)
+                    {
+                        <dt>@param.Key</dt>
+                        <dd>@param.Value</dd>
+                    }
+                </dl>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(ToolCall.Result))
+        {
+            <div class="sh-box output-result-box">
+                <span class="sh-box-title">Result</span>
+                <pre class="result-json sh-code">@FormatResult()</pre>
+            </div>
+        }
+    </div>
 </div>
 
 @code {
@@ -61,19 +70,22 @@
 }
 
 <style>
+    .output-display {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+    }
+
     .output-header {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        gap: 1rem;
-        padding-bottom: 0.75rem;
-        margin-bottom: 0.75rem;
-        border-bottom: 1px solid var(--sh-border);
+        gap: 0.6rem;
     }
 
     .output-tool {
         font-family: var(--sh-font-mono);
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+        margin-right: auto;
     }
 
     .output-tool-name {
@@ -88,15 +100,44 @@
     .output-time {
         color: var(--sh-text-subtle);
         font-family: var(--sh-font-mono);
-        font-size: 0.75rem;
+        font-size: 0.72rem;
+    }
+
+    .output-summary {
+        background: var(--sh-success-soft);
+        font-size: 0.85rem;
+        line-height: 1.45;
+    }
+
+        /* The title straddles the border: white above it, the box's tint below. */
+        .output-summary > .sh-box-title {
+            background: linear-gradient(var(--sh-surface) 55%, var(--sh-success-soft) 55%);
+        }
+
+    .output-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem 0.6rem;
+        align-items: flex-start;
+    }
+
+    /* Sized to its content (up to a limit) so short values don't wrap mid-word. */
+    .output-params-box {
+        flex: 0 1 auto;
+        max-width: 26rem;
+    }
+
+    .output-result-box {
+        flex: 1 1 20rem;
+        padding: 0.8rem 0.4rem 0.4rem;
     }
 
     .output-params {
         display: grid;
         grid-template-columns: max-content 1fr;
-        gap: 0.3rem 1rem;
-        margin: 0 0 1rem;
-        font-size: 0.85rem;
+        gap: 0.2rem 0.75rem;
+        margin: 0;
+        font-size: 0.8rem;
     }
 
         .output-params dt {
@@ -107,40 +148,22 @@
         .output-params dd {
             margin: 0;
             font-family: var(--sh-font-mono);
-            word-break: break-all;
+            overflow-wrap: anywhere;
         }
 
-    .output-summary {
-        margin: 0 0 1rem;
-        padding: 0.6rem 0.85rem;
-        border-left: 3px solid var(--sh-success);
-        background: var(--sh-success-soft);
-        border-radius: var(--sh-radius-sm);
-        font-size: 0.875rem;
-        line-height: 1.5;
-    }
-
-    .output-label {
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--sh-text-muted);
-        margin-bottom: 0.4rem;
-    }
-
     .output-alert {
-        padding: 0.6rem 0.85rem;
-        margin-bottom: 1rem;
-        border: 1px solid #fecaca;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--sh-danger-border);
         border-radius: var(--sh-radius-sm);
         background: var(--sh-danger-soft);
         color: var(--sh-danger);
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         font-weight: 500;
     }
 
     .result-json {
         max-height: 320px;
+        border: none;
+        padding: 0.3rem;
     }
 </style>
