@@ -11,7 +11,7 @@ public class HarnessUITests : PageTest
 {
     private string HarnessUrl => ServerFixture.BaseUrl + "/harness";
 
-    private ILocator PromptInput => Page.Locator("input[placeholder*='scan example.com']");
+    private ILocator PromptInput => Page.Locator("#prompt-input");
     private ILocator SendButton => Page.GetByRole(AriaRole.Button, new() { Name = "Send" });
 
     [TearDown]
@@ -481,5 +481,70 @@ public class HarnessUITests : PageTest
         await PromptInput.PressAsync("ArrowUp");
 
         await Expect(PromptInput).ToHaveValueAsync("hello there");
+    }
+
+    // --- Enter to send, Shift+Enter for a new line ---
+
+    [Test]
+    public async Task Enter_sends_the_message()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FillAsync("what's the weather in Cairo?");
+        await PromptInput.PressAsync("Enter");
+
+        await Expect(UserBubbles).ToHaveCountAsync(1, new() { Timeout = 15000 });
+        await Expect(UserBubbles.First).ToContainTextAsync("what's the weather in Cairo?");
+        await Expect(PromptInput).ToHaveValueAsync("");
+    }
+
+    [Test]
+    public async Task Shift_enter_inserts_a_new_line_without_sending()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FocusAsync();
+        await Page.Keyboard.TypeAsync("scan example.com");
+        await Page.Keyboard.PressAsync("Shift+Enter");
+        await Page.Keyboard.TypeAsync("for links please");
+
+        await Expect(PromptInput).ToHaveValueAsync("scan example.com\nfor links please");
+        await Expect(UserBubbles).ToHaveCountAsync(0);
+
+        // Enter then sends the whole multi-line message, and the bubble keeps its line break.
+        await Page.Keyboard.PressAsync("Enter");
+        await Expect(UserBubbles).ToHaveCountAsync(1, new() { Timeout = 15000 });
+        var text = await UserBubbles.First.Locator(".chat-text").InnerTextAsync();
+        Assert.That(text, Is.EqualTo("scan example.com\nfor links please"));
+    }
+
+    [Test]
+    public async Task Enter_on_an_empty_message_does_nothing()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FocusAsync();
+        await Page.Keyboard.PressAsync("Enter");
+        await Page.Keyboard.PressAsync("Enter");
+
+        await Expect(PromptInput).ToHaveValueAsync(""); // no newline inserted either
+        await Expect(UserBubbles).ToHaveCountAsync(0);
+    }
+
+    [Test]
+    public async Task Enter_does_not_send_while_the_agent_is_busy()
+    {
+        await GotoHarnessAsync();
+
+        // An attack waits for approval, so the agent stays busy.
+        await PromptInput.FillAsync("attack example.com");
+        await PromptInput.PressAsync("Enter");
+        await Expect(Page.Locator(".confirmation-modal")).ToBeVisibleAsync(new() { Timeout = 15000 });
+
+        await PromptInput.FillAsync("scan example.com", new() { Force = true });
+        await PromptInput.PressAsync("Enter", new() { NoWaitAfter = true });
+        await Expect(UserBubbles).ToHaveCountAsync(1);
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Reject" }).ClickAsync();
     }
 }
