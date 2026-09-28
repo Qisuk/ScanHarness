@@ -90,50 +90,59 @@
         <div class="tab-panel">
             @if (activeTab == "main")
             {
-                <!-- Input Area (top) -->
-                <div class="input-area sh-box">
-                    <h2 class="sh-box-title">Ask the agent</h2>
-                    <span class="sh-box-aside"><kbd>↑</kbd><kbd>↓</kbd> recall previous prompts</span>
+                <!-- Chat (top): questions and the agent's replies; select a reply to show its tool output below -->
+                <div class="input-area chat-area sh-box">
+                    <h2 class="sh-box-title">Chat with the agent</h2>
+                    <span class="sh-box-aside">select a reply to show its tool output</span>
 
-                    <div class="input-group">
+                    <ChatWindow Turns="transcript"
+                                SelectedToolCallId="@DisplayedToolCall?.Id"
+                                OnSelectToolCall="SelectToolCall"
+                                IsThinking="isThinking"
+                                IsSummarizing="isSummarizing"
+                                IsSummarizingSession="isSummarizingSession"
+                                ShowUsers="ShowUsers" />
+
+                    <div class="input-group chat-input">
                         <input type="text" class="form-control"
                                @bind="prompt" @bind:event="oninput"
                                @onkeydown="HandlePromptKeyDown"
+                               title="Use ↑ and ↓ to recall previous prompts"
                                placeholder="e.g. scan example.com for links, or attack example.com" />
                         <button class="btn btn-primary px-4" @onclick="SubmitPrompt"
                                 disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting || isSummarizingSession)">
                             @(isThinking ? "Thinking..." : isSummarizing ? "Summarizing..." : isExecuting ? "Working..." : "Send")
                         </button>
                     </div>
-
-                    @if (!string.IsNullOrEmpty(agentMessage))
-                    {
-                        <div class="agent-message">
-                            <span class="agent-message-label">Agent</span>
-                            <span>@agentMessage</span>
-                        </div>
-                    }
-
-                    @if (!string.IsNullOrEmpty(agentSummary))
-                    {
-                        <div class="agent-summary">
-                            <span class="agent-message-label">Summary</span>
-                            <span>@agentSummary</span>
-                        </div>
-                    }
                 </div>
 
-                <!-- Tool Output Area -->
+                <!-- Tool Output Area (bottom): the latest call, or the one whose reply was selected -->
                 <div class="output-area sh-box">
                     <h2 class="sh-box-title">Tool output</h2>
-                    @if (lastToolCall == null)
+                    @if (DisplayedToolCall != null)
                     {
-                        <div class="empty-state">No tool output yet. Ask the agent to run a tool to see results.</div>
+                        <span class="sh-box-aside">
+                            @if (selectedToolCallId != null)
+                            {
+                                <span>selected request</span>
+                                <button type="button" class="box-link" @onclick="ShowLatestToolCall">Show latest</button>
+                            }
+                            else
+                            {
+                                <span>latest request</span>
+                            }
+                        </span>
                     }
-                    else
-                    {
-                        <ToolOutputDisplay ToolCall="lastToolCall" />
-                    }
+                    <div class="output-scroll">
+                        @if (DisplayedToolCall == null)
+                        {
+                            <div class="empty-state">No tool output yet. Ask the agent to run a tool to see results.</div>
+                        }
+                        else
+                        {
+                            <ToolOutputDisplay ToolCall="DisplayedToolCall" />
+                        }
+                    </div>
                 </div>
             }
 
@@ -195,10 +204,19 @@
 @code {
     private string activeTab = "main";
     private string prompt = "";
-    private string agentMessage = "";
     private bool isExecuting = false;
     private ToolCall? lastToolCall;
     private ToolCall? pendingToolCall;
+
+    // The chat, rebuilt from the session's log entries and tool calls whenever they change.
+    private IReadOnlyList<ChatTurn> transcript = Array.Empty<ChatTurn>();
+
+    // Tool call chosen by selecting a reply in the chat; null follows the latest call.
+    private string? selectedToolCallId;
+
+    // What the tool output pane shows: the selected request's call, otherwise the latest one.
+    private ToolCall? DisplayedToolCall =>
+        (selectedToolCallId != null ? ToolCallService.GetToolCall(selectedToolCallId) : null) ?? lastToolCall;
     private bool showConfirmation = false;
     private List<LogEntry> recentLogs = new();
 
@@ -211,9 +229,6 @@
 
     // True while the brain summarises a finished tool call.
     private bool isSummarizing = false;
-
-    // The brain's summary of the last finished action, shown under the agent's decision.
-    private string agentSummary = "";
 
     // The latest session report (summary of summaries + tool list), and whether one is being made.
     private SessionReport? sessionReport;
@@ -284,8 +299,8 @@
         RefreshSessions();
     }
 
-    // Recreates a session in the UI from its stored entries and calls: the activity feed, tool
-    // calls and history, the last tool output, the agent's last reply and summary, and prompt history.
+    // Recreates a session in the UI from its stored entries and calls: the chat, the activity feed,
+    // tool calls and history, the latest tool output, and prompt history.
     private void ShowSession(IReadOnlyList<LogEntry> logs, IReadOnlyList<ToolCall> calls)
     {
         LogService.LoadSession(logs);
@@ -293,29 +308,26 @@
 
         recentLogs = LogService.GetRecentLogs(FeedSize);
         lastToolCall = calls.LastOrDefault();
+        selectedToolCallId = null;
         pendingToolCall = null;
         showConfirmation = false;
         sessionReport = null;
         activeTab = "main";
-
-        agentMessage = logs.Select(l => ReadData(l, "agentMessage")).LastOrDefault(m => m != null) ?? "";
-        agentSummary = lastToolCall?.Summary ?? "";
+        RebuildTranscript();
 
         promptHistory.Clear();
-        promptHistory.AddRange(logs.Select(l => ReadData(l, "prompt")).OfType<string>());
+        promptHistory.AddRange(transcript.Where(t => t.Kind == ChatTurnKind.Request).Select(t => t.Prompt));
         historyIndex = promptHistory.Count;
     }
 
-    // Log data holds plain values when logged live and JSON elements when loaded from the store.
-    private static string? ReadData(LogEntry entry, string key)
-    {
-        if (entry.Data == null || !entry.Data.TryGetValue(key, out var value) || value == null)
-            return null;
+    private void RebuildTranscript() =>
+        transcript = ChatTranscript.Build(LogService.GetLogs(), ToolCallService.GetToolCalls());
 
-        return value is System.Text.Json.JsonElement json
-            ? (json.ValueKind == System.Text.Json.JsonValueKind.String ? json.GetString() : json.ToString())
-            : value.ToString();
-    }
+    // Selecting a reply in the chat shows that request's tool call in the output pane.
+    private void SelectToolCall(ToolCall call) =>
+        selectedToolCallId = call.Id == lastToolCall?.Id ? null : call.Id;
+
+    private void ShowLatestToolCall() => selectedToolCallId = null;
 
     private void OnBrainChanged(ChangeEventArgs e)
     {
@@ -339,7 +351,14 @@
     private void OnToolCallsChanged()
     {
         recentLogs = LogService.GetRecentLogs(FeedSize);
-        lastToolCall = ToolCallService.GetToolCalls().LastOrDefault();
+        var latest = ToolCallService.GetToolCalls().LastOrDefault();
+        if (latest?.Id != lastToolCall?.Id)
+        {
+            // A new request's call: the output pane goes back to following the latest one.
+            selectedToolCallId = null;
+        }
+        lastToolCall = latest;
+        RebuildTranscript();
 
         var waitingForApproval = ToolCallService.GetToolCalls()
             .FirstOrDefault(t => t.Status == ToolCallStatus.WaitingForApproval);
@@ -356,6 +375,7 @@
     private void OnLogsChanged()
     {
         recentLogs = LogService.GetRecentLogs(FeedSize);
+        RebuildTranscript();
         InvokeAsync(StateHasChanged);
     }
 
@@ -396,8 +416,6 @@
 
         isExecuting = true;
         var userPrompt = prompt.Trim();
-        agentMessage = "";
-        agentSummary = "";
 
         // Record in history (skip consecutive duplicates) and clear the input.
         if (promptHistory.LastOrDefault() != userPrompt)
@@ -426,7 +444,6 @@
                 isThinking = false;
             }
             var elapsed = $"{stopwatch.Elapsed.TotalSeconds:0.0}s";
-            agentMessage = decision.Message;
 
             // The full decision is stored with the log entry so the session can be recreated later.
             var decisionData = new Dictionary<string, object>
@@ -497,7 +514,6 @@
         }
 
         ToolCallService.RecordSummary(toolCall, summary.Text, brain.Name);
-        agentSummary = summary.Text;
 
         if (summary.FallbackReason != null)
         {
@@ -767,47 +783,33 @@
         overflow: auto;
     }
 
-    .input-area {
+    /* Chat (top) and tool output (bottom) share the panel; each scrolls inside itself. The scrolling
+       happens in inner elements so the titles set into the box borders are never clipped. */
+    .chat-area {
         display: flex;
         flex-direction: column;
-        gap: 0.45rem;
+        gap: 0.5rem;
+        flex: 1 1 55%;
+        min-height: 16rem;
     }
 
-    .agent-message,
-    .agent-summary {
-        display: flex;
-        gap: 0.6rem;
-        align-items: baseline;
-        padding: 0.4rem 0.6rem;
-        border: 1px solid var(--sh-border);
-        border-radius: var(--sh-radius-sm);
-        background: var(--sh-surface-muted);
-        font-size: 0.85rem;
-    }
-
-    .agent-summary {
-        background: var(--sh-success-soft);
-        border-color: var(--sh-success-border);
-        border-left: 3px solid var(--sh-success);
-    }
-
-        .agent-summary .agent-message-label {
-            color: var(--sh-success);
-        }
-
-    .agent-message-label {
+    .chat-input {
         flex: none;
-        min-width: 4.2rem;
-        font-size: 0.66rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--sh-text-muted);
     }
 
     .output-area {
-        flex: 1;
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 45%;
         min-height: 12rem;
+    }
+
+    .output-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        margin: 0 -0.35rem;
+        padding: 0.1rem 0.35rem 0;
     }
 
     .empty-state {
@@ -924,6 +926,13 @@
         /* Stacked sections size to their content; the feed caps its height and scrolls. */
         .output-area {
             min-height: 0;
+            max-height: 30rem;
+        }
+
+        /* The page scrolls here, so the chat needs its own height to keep scrolling inside itself. */
+        .chat-area {
+            flex: none;
+            height: 26rem;
         }
 
         .activity-feed {
