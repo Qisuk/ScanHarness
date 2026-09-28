@@ -13,20 +13,32 @@ namespace ScanHarness.Services
     /// <param name="UserName">User who made the request that led to the call, if recorded.</param>
     public sealed record ToolCallListItem(int Number, DateTime Time, string Tool, string Action, string Parameters, ToolCallStatus Status, string? Brain, string? UserName = null);
 
+    /// <summary>One control that tripped in a session, with the message that tripped it.</summary>
+    /// <param name="Number">Position in the session, starting at 1.</param>
+    /// <param name="Time">When the control tripped (UTC).</param>
+    /// <param name="UserName">User whose action was checked.</param>
+    /// <param name="Violation">Which control, at which stage, in which mode, and what it found.</param>
+    /// <param name="Message">The message that tripped it (the question, reply, summary or tool call).</param>
+    public sealed record ControlTrip(int Number, DateTime Time, string? UserName, Controls.ControlViolation Violation, string Message);
+
     /// <summary>The result of summarising a whole session.</summary>
     /// <param name="ToolCalls">Every tool call in the session, built deterministically.</param>
     /// <param name="Summary">Summary of the per-action summaries, at most <see cref="SessionReportBuilder.MaxSummaryWords"/> words.</param>
     /// <param name="SummaryBrain">Name of the brain that wrote <paramref name="Summary"/>.</param>
     /// <param name="FallbackReason">Set when the brain couldn't write the summary and the rule-based one was used.</param>
     /// <param name="CreatedAt">When the report was made (UTC).</param>
+    /// <param name="ControlTrips">Every control that tripped in the session, built deterministically from the log.</param>
     public sealed record SessionReport(
         IReadOnlyList<ToolCallListItem> ToolCalls,
         string Summary,
         string SummaryBrain,
         string? FallbackReason,
-        DateTime CreatedAt)
+        DateTime CreatedAt,
+        IReadOnlyList<ControlTrip>? ControlTrips = null)
     {
         public int SummaryWordCount => SessionReportBuilder.CountWords(Summary);
+
+        public IReadOnlyList<ControlTrip> Trips => ControlTrips ?? Array.Empty<ControlTrip>();
     }
 
     /// <summary>
@@ -40,6 +52,47 @@ namespace ScanHarness.Services
 
         /// <summary>Message used when there is nothing to summarise.</summary>
         public const string EmptySessionSummary = "No tools have been called in this session yet.";
+
+        /// <summary>
+        /// Lists every control that tripped in the session, in order, with the message that tripped it.
+        /// Built from the log alone, so the same session always gives the same list.
+        /// </summary>
+        public static IReadOnlyList<ControlTrip> ListControlTrips(IEnumerable<LogEntry> logs)
+        {
+            var trips = new List<ControlTrip>();
+
+            // The most recent text of each kind, for hits logged before violations stored the checked text.
+            var lastSeen = new Dictionary<string, string>();
+
+            foreach (var entry in logs.OrderBy(e => e.Timestamp))
+            {
+                Remember(lastSeen, ChatTranscript.Targets.Request, ChatTranscript.ReadString(entry, "prompt"));
+                Remember(lastSeen, ChatTranscript.Targets.Reply, ChatTranscript.ReadString(entry, "agentMessage"));
+                Remember(lastSeen, ChatTranscript.Targets.Summary, ChatTranscript.ReadString(entry, "summary"));
+                Remember(lastSeen, ChatTranscript.Targets.SessionSummary, ChatTranscript.ReadString(entry, "sessionSummary"));
+                var tool = ChatTranscript.ReadString(entry, "tool");
+                if (tool != null)
+                {
+                    Remember(lastSeen, ChatTranscript.Targets.ToolCall, $"{tool}/{ChatTranscript.ReadString(entry, "action")}");
+                }
+
+                foreach (var violation in Controls.ControlService.FromJson(ChatTranscript.ReadString(entry, "controls")))
+                {
+                    var message = violation.Text ?? (lastSeen.TryGetValue(violation.Target, out var seen) ? seen : "");
+                    trips.Add(new ControlTrip(trips.Count + 1, entry.Timestamp, entry.UserName, violation, message));
+                }
+            }
+
+            return trips;
+        }
+
+        private static void Remember(Dictionary<string, string> lastSeen, string target, string? text)
+        {
+            if (text != null)
+            {
+                lastSeen[target] = text;
+            }
+        }
 
         /// <summary>Lists the calls in the order they were made; the same calls always give the same list.</summary>
         public static IReadOnlyList<ToolCallListItem> ListToolCalls(IEnumerable<ToolCall> calls) =>

@@ -1,7 +1,9 @@
 @using ScanHarness.Models
 @using ScanHarness.Services
+@using ScanHarness.Services.Controls
 
-@* The session report: the summary brain's summary of summaries, and the deterministic tool-call list. *@
+@* The session report: the summary brain's summary of summaries, then the deterministic lists of
+   controls tripped and tools called. *@
 <div class="session-summary sh-box sh-box-success">
     <span class="sh-box-title">Session summary</span>
     @if (Report != null)
@@ -21,6 +23,25 @@
     }
     else
     {
+        @* One pip per control tripped: up to 3 warnings and 3 blocks, each opening its details. *@
+        var warnings = Report.Trips.Where(t => t.Violation.Mode == ControlMode.Advise).ToList();
+        var blocks = Report.Trips.Where(t => t.Violation.Mode == ControlMode.Block).ToList();
+        @if (Report.Trips.Count > 0)
+        {
+            <div class="session-pips" aria-label="@($"{Plural(warnings.Count, "warning")} and {Plural(blocks.Count, "block")} this session")">
+                @foreach (var trip in warnings.Take(MaxPipsPerMode).Concat(blocks.Take(MaxPipsPerMode)))
+                {
+                    <ControlPip Violations="new[] { trip.Violation }" />
+                }
+                @{ var hidden = Math.Max(0, warnings.Count - MaxPipsPerMode) + Math.Max(0, blocks.Count - MaxPipsPerMode); }
+                @if (hidden > 0)
+                {
+                    <span class="session-pips-more">+@hidden more</span>
+                }
+                <span class="session-pips-counts">@Plural(warnings.Count, "warning") · @Plural(blocks.Count, "block")</span>
+            </div>
+        }
+
         @foreach (var paragraph in Report.Summary.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
         {
             <p class="session-summary-text">@paragraph</p>
@@ -34,6 +55,58 @@
 
 @if (Report != null && !IsGenerating)
 {
+    <div class="session-controls sh-box">
+        <span class="sh-box-title">Controls tripped</span>
+        <span class="sh-box-aside">@Report.Trips.Count in this session</span>
+        @if (Report.Trips.Count == 0)
+        {
+            <div class="empty-state">No controls tripped in this session.</div>
+        }
+        else
+        {
+            <div class="session-tools-scroll">
+                <table class="table session-tools-table session-controls-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="col-number">#</th>
+                            <th class="col-time">Time</th>
+                            @if (ShowUsers)
+                            {
+                                <th class="col-user">User</th>
+                            }
+                            <th class="col-action">Action</th>
+                            <th class="col-control">Control</th>
+                            <th>Message that tripped it</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var trip in Report.Trips)
+                        {
+                            var isBlock = trip.Violation.Mode == ControlMode.Block;
+                            <tr>
+                                <td class="mono">@trip.Number</td>
+                                <td class="mono">@trip.Time.ToLocalTime().ToString("HH:mm:ss")</td>
+                                @if (ShowUsers)
+                                {
+                                    <td class="session-user">@(trip.UserName ?? "—")</td>
+                                }
+                                <td><span class="badge sh-pill @(isBlock ? "sh-pill-danger" : "sh-pill-warning")">@(isBlock ? "Block" : "Warning")</span></td>
+                                <td>
+                                    <div class="session-control-name">@trip.Violation.Name</div>
+                                    <div class="session-control-stage">@trip.Violation.StageName · @trip.Violation.Target</div>
+                                </td>
+                                <td>
+                                    <div class="session-control-message" title="@trip.Message">@trip.Message</div>
+                                    <div class="session-control-stage">@trip.Violation.Detail</div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
     <div class="session-tools sh-box">
         <span class="sh-box-title">Tools called</span>
         <span class="sh-box-aside">@Report.ToolCalls.Count in this session</span>
@@ -87,6 +160,11 @@
     /// <summary>Adds a User column (the admin view, which mixes users' calls).</summary>
     [Parameter]
     public bool ShowUsers { get; set; }
+
+    // At most this many pips per mode (warnings, blocks) on the summary; the rest are counted.
+    private const int MaxPipsPerMode = 3;
+
+    private static string Plural(int n, string noun) => $"{n} {noun}{(n == 1 ? "" : "s")}";
 }
 
 <style>
@@ -114,6 +192,49 @@
         margin: 0.5rem 0 0;
         color: var(--sh-warning);
         font-size: 0.8rem;
+    }
+
+    .session-pips {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin: 0.1rem 0 0.5rem;
+    }
+
+    .session-pips-more,
+    .session-pips-counts {
+        font-size: 0.74rem;
+        color: var(--sh-text-muted);
+    }
+
+    .session-pips-counts {
+        margin-left: 0.3rem;
+    }
+
+    .session-controls {
+        padding: 0.75rem 0.4rem 0.4rem;
+    }
+
+        .session-controls-table .col-action { width: 6.5rem; }
+        .session-controls-table .col-control { width: 14rem; }
+
+    .session-control-name {
+        font-family: var(--sh-font-mono);
+        font-weight: 600;
+        font-size: 0.78rem;
+    }
+
+    .session-control-stage {
+        color: var(--sh-text-muted);
+        font-size: 0.72rem;
+    }
+
+    .session-control-message {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: pre-wrap;
     }
 
     .session-tools {

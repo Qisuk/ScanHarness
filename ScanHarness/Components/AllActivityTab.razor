@@ -1,0 +1,507 @@
+@using ScanHarness.Models
+@using ScanHarness.Services
+@using ScanHarness.Services.Controls
+@inject ActivityExplorer Explorer
+@inject SessionState Session
+@inject AgentBrainSelector BrainSelector
+@inject ControlService Controls
+@inject LogService Log
+
+@* Admin only: every request across all users' sessions, filterable by user, session, time range and
+   control outcome. Selecting a row opens its session with that request's tool output shown. *@
+@if (!Session.CurrentUser.IsAdmin)
+{
+    <div class="empty-state">All activity is only available to admin.</div>
+}
+else
+{
+    <div class="activity-filters sh-box">
+        <span class="sh-box-title">Filters</span>
+        <button type="button" class="box-link sh-box-aside activity-reset" @onclick="ResetAsync">Reset</button>
+
+        <label class="activity-filter">
+            <span>User</span>
+            <select id="activity-user" class="form-select form-select-sm" value="@(userName ?? "")" @onchange="OnUserChanged">
+                <option value="">All users</option>
+                @foreach (var user in HarnessUsers.All)
+                {
+                    <option value="@user.Name">@user.Name</option>
+                }
+            </select>
+        </label>
+
+        <label class="activity-filter activity-filter-wide">
+            <span>Session</span>
+            <select id="activity-session" class="form-select form-select-sm" value="@(sessionId ?? "")" @onchange="OnSessionChanged">
+                <option value="">All sessions</option>
+                @foreach (var session in sessionChoices)
+                {
+                    <option value="@session.Id">@session.UserName · @session.LastActivityAt.ToLocalTime().ToString("dd MMM HH:mm") · @(session.Title ?? "(no requests)")</option>
+                }
+            </select>
+        </label>
+
+        <label class="activity-filter">
+            <span>From</span>
+            <input id="activity-from" type="datetime-local" class="form-control form-control-sm" @bind="from" @bind:after="RefreshAsync" />
+        </label>
+
+        <label class="activity-filter">
+            <span>To</span>
+            <input id="activity-to" type="datetime-local" class="form-control form-control-sm" @bind="to" @bind:after="RefreshAsync" />
+        </label>
+
+        <label class="activity-filter">
+            <span>Controls</span>
+            <select id="activity-controls" class="form-select form-select-sm" value="@controls" @onchange="OnControlsChanged">
+                <option value="@ControlFilter.Any">Any</option>
+                <option value="@ControlFilter.None">None tripped</option>
+                <option value="@ControlFilter.Warning">Warning</option>
+                <option value="@ControlFilter.Block">Block</option>
+                <option value="@ControlFilter.Flagged">Warning or block</option>
+            </select>
+        </label>
+    </div>
+
+    @if (activityReport != null || isSummarizing)
+    {
+        <div class="activity-summary sh-box sh-box-success">
+            <span class="sh-box-title">Activity summary</span>
+            @if (activityReport != null && !isSummarizing)
+            {
+                <span class="sh-box-aside">
+                    @activityReport.SummaryBrain · @activityReport.SummaryWordCount words · @activityReport.CreatedAt.ToLocalTime().ToString("HH:mm:ss")
+                </span>
+            }
+
+            @if (isSummarizing)
+            {
+                <div class="empty-state">Summarising the activity in this window…</div>
+            }
+            else if (activityReport != null)
+            {
+                <div class="activity-summary-window">
+                    <span><strong>@activityReport.Window</strong> · @activityReport.Overview.Describe()</span>
+                    <ControlPip Violations="activityReport.Controls" />
+                </div>
+                @foreach (var paragraph in activityReport.Summary.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    <p class="activity-summary-text">@paragraph</p>
+                }
+                @if (activityReport.FallbackReason != null)
+                {
+                    <p class="activity-summary-note">The summary brain couldn't write this (@activityReport.FallbackReason), so the rule-based summary is shown.</p>
+                }
+            }
+        </div>
+    }
+
+    <div class="activity-results sh-box">
+        <span class="sh-box-title">All activity</span>
+        <span class="sh-box-aside">
+            <span>
+                @(result.TotalMatches == result.Rows.Count
+                    ? $"{result.TotalMatches} request{(result.TotalMatches == 1 ? "" : "s")}"
+                    : $"showing {result.Rows.Count} of {result.TotalMatches} requests")
+            </span>
+            <button type="button" class="box-link activity-summarise" disabled="@(isSummarizing || result.TotalMatches == 0)"
+                    title="Summarise everything matching these filters, using the brain selected in the Summary menu"
+                    @onclick="SummarizeActivityAsync">
+                @(isSummarizing ? "Summarising…" : "Summarise activity")
+            </button>
+        </span>
+
+        @if (result.Rows.Count == 0)
+        {
+            <div class="empty-state">No requests match these filters.</div>
+        }
+        else
+        {
+            <div class="activity-scroll">
+                <table class="table activity-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="col-when">Time</th>
+                            <th class="col-user">User</th>
+                            <th>Request</th>
+                            <th class="col-tool">Tool</th>
+                            <th class="col-controls">Controls</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in result.Rows)
+                        {
+                            var turn = row.Turn;
+                            <tr class="activity-row severity-row-@row.Severity" tabindex="0"
+                                title="Open this session"
+                                @onclick="() => OpenAsync(row)"
+                                @onkeydown="e => OnRowKeyDownAsync(e, row)">
+                                <td class="mono">@turn.RequestedAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                                <td class="activity-user">@(turn.UserName ?? "—")</td>
+                                <td>
+                                    <div class="activity-prompt">@turn.Prompt</div>
+                                    <div class="activity-session">@(row.Session.Title ?? "(no title)") · @row.Session.UserName's session</div>
+                                </td>
+                                <td>
+                                    @if (turn.ToolCall is ToolCall call)
+                                    {
+                                        <div class="mono">@call.Tool/@call.Action</div>
+                                        <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="activity-none">@(turn.PromptBlocked ? "not sent" : turn.ToolBlocked ? "tool blocked" : "no tool")</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (row.Controls.Count == 0)
+                                    {
+                                        <span class="activity-none">none</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="activity-controls">
+                                            <ControlPip Violations="row.Controls" />
+                                            <span>@string.Join(", ", row.Controls.Select(v => $"{(v.Mode == ControlMode.Block ? "Block" : "Warning")}: {v.Name}"))</span>
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Raised with the session id and tool call id (if any) when a row is selected.</summary>
+    [Parameter]
+    public EventCallback<(string SessionId, string? ToolCallId)> OnOpen { get; set; }
+
+    private string? userName;
+    private string? sessionId;
+    private DateTime? from;
+    private DateTime? to;
+    private ControlFilter controls = ControlFilter.Any;
+    private IReadOnlyList<HarnessSession> sessionChoices = Array.Empty<HarnessSession>();
+    private ActivityResult result = new(Array.Empty<ActivityRow>(), 0);
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private Task OnUserChanged(ChangeEventArgs e)
+    {
+        userName = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString();
+        sessionId = null; // the session list depends on the user
+        return RefreshAsync();
+    }
+
+    private Task OnSessionChanged(ChangeEventArgs e)
+    {
+        sessionId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString();
+        return RefreshAsync();
+    }
+
+    private Task OnControlsChanged(ChangeEventArgs e)
+    {
+        controls = Enum.TryParse<ControlFilter>(e.Value?.ToString(), out var value) ? value : ControlFilter.Any;
+        return RefreshAsync();
+    }
+
+    private Task ResetAsync()
+    {
+        userName = sessionId = null;
+        from = to = null;
+        controls = ControlFilter.Any;
+        return RefreshAsync();
+    }
+
+    // Times are entered in the browser's local time; the app runs on the same machine, so local → UTC here matches.
+    private Task RefreshAsync()
+    {
+        if (!Session.CurrentUser.IsAdmin)
+        {
+            return Task.CompletedTask;
+        }
+
+        sessionChoices = Explorer.Sessions(userName);
+        var filter = CurrentFilter();
+        result = Explorer.Find(filter);
+        return Task.CompletedTask;
+    }
+
+    private ActivityReport? activityReport;
+    private bool isSummarizing;
+
+    // Summarises everything matching the current filters (not just the rows shown) with the summary brain.
+    // Chat Out controls check the result, and the request, summary and any control hits are logged.
+    private async Task SummarizeActivityAsync()
+    {
+        if (!Session.CurrentUser.IsAdmin || isSummarizing)
+            return;
+
+        var rows = Explorer.Find(CurrentFilter(), int.MaxValue).Rows;
+        if (rows.Count == 0)
+            return;
+
+        var brain = BrainSelector.SummaryBrain;
+        var window = DescribeWindow();
+        isSummarizing = true;
+        Log.LogUser($"Requested a summary of all activity ({window}; {rows.Count} request{(rows.Count == 1 ? "" : "s")})", brain: brain.Name);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        ActionSummary summary;
+        try
+        {
+            summary = await brain.SummarizeActivityAsync(rows, window);
+        }
+        finally
+        {
+            isSummarizing = false;
+        }
+
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.ActivitySummary, summary.Text);
+        var shown = check.IsBlocked ? "Activity summary withheld: blocked by a Chat Out control." : summary.Text;
+        var overview = ActivitySummaryBuilder.Overview(rows);
+        activityReport = new ActivityReport(window, overview, shown, brain.Name, summary.FallbackReason, DateTime.UtcNow, check.Violations);
+
+        if (summary.FallbackReason != null)
+        {
+            Log.LogWarning($"Brain couldn't summarise the activity ({summary.FallbackReason}); used the rule-based summary", brain: brain.Name);
+        }
+
+        Log.LogSummary(
+            $"Activity summary ({window}; {activityReport.SummaryWordCount} words · {stopwatch.Elapsed.TotalSeconds:0.0}s): {shown.Replace("\n\n", " ")}",
+            data: new()
+            {
+                ["activitySummary"] = summary.Text,
+                ["window"] = window,
+                ["overview"] = overview.Describe(),
+                ["wordCount"] = activityReport.SummaryWordCount,
+                ["fallbackReason"] = summary.FallbackReason ?? "",
+            },
+            brain: brain.Name);
+        ControlReporter.Report(Log, check, brain.Name);
+    }
+
+    private ActivityFilter CurrentFilter() =>
+        new(userName, sessionId, from?.ToUniversalTime(), to?.ToUniversalTime(), controls);
+
+    // Plain description of the filters, used as the summary's window and in the log.
+    private string DescribeWindow()
+    {
+        var parts = new List<string> { userName ?? "all users" };
+        if (sessionId != null)
+        {
+            parts.Add($"session \"{sessionChoices.FirstOrDefault(s => s.Id == sessionId)?.Title ?? sessionId}\"");
+        }
+
+        parts.Add((from, to) switch
+        {
+            (null, null) => "any time",
+            (DateTime f, null) => $"from {f:dd MMM HH:mm}",
+            (null, DateTime t) => $"until {t:dd MMM HH:mm}",
+            (DateTime f, DateTime t) => $"{f:dd MMM HH:mm} to {t:dd MMM HH:mm}",
+        });
+
+        if (controls != ControlFilter.Any)
+        {
+            parts.Add(controls switch
+            {
+                ControlFilter.None => "no controls tripped",
+                ControlFilter.Warning => "with warnings",
+                ControlFilter.Block => "with blocks",
+                _ => "with warnings or blocks",
+            });
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private Task OpenAsync(ActivityRow row) => OnOpen.InvokeAsync((row.Session.Id, row.Turn.ToolCall?.Id));
+
+    private Task OnRowKeyDownAsync(KeyboardEventArgs e, ActivityRow row) =>
+        e.Key is "Enter" or " " ? OpenAsync(row) : Task.CompletedTask;
+}
+
+<style>
+    .activity-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 0.5rem 0.75rem;
+        padding: 0.85rem 0.6rem 0.55rem;
+    }
+
+    .activity-reset {
+        cursor: pointer;
+    }
+
+    .activity-filter {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin: 0;
+        min-width: 8rem;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sh-text-muted);
+    }
+
+        .activity-filter select,
+        .activity-filter input {
+            font-size: 0.8rem;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+    .activity-filter-wide {
+        flex: 1 1 14rem;
+    }
+
+    .activity-summary {
+        background: var(--sh-success-soft);
+        font-size: 0.86rem;
+        line-height: 1.5;
+    }
+
+        .activity-summary > .sh-box-title,
+        .activity-summary > .sh-box-aside {
+            background: linear-gradient(var(--sh-surface) 55%, var(--sh-success-soft) 55%);
+        }
+
+    .activity-summary-window {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+        color: var(--sh-text-muted);
+        font-size: 0.78rem;
+    }
+
+    .activity-summary-text {
+        margin: 0 0 0.45rem;
+    }
+
+    .activity-summary-note {
+        margin: 0;
+        color: var(--sh-warning);
+        font-size: 0.78rem;
+    }
+
+    .activity-summarise {
+        margin-left: 0.4rem;
+        cursor: pointer;
+    }
+
+        .activity-summarise:disabled {
+            cursor: default;
+            opacity: 0.5;
+        }
+
+    .activity-results {
+        flex: 1;
+        min-height: 12rem;
+        display: flex;
+        flex-direction: column;
+        padding: 0.75rem 0.4rem 0.4rem;
+    }
+
+    .activity-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .activity-table {
+        font-size: 0.82rem;
+        min-width: 44rem;
+        --bs-table-bg: transparent;
+    }
+
+        .activity-table thead th {
+            position: sticky;
+            top: 0;
+            background: var(--sh-surface-muted);
+            color: var(--sh-text-muted);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--sh-border);
+            padding: 0.35rem 0.6rem;
+        }
+
+        .activity-table td {
+            padding: 0.35rem 0.6rem;
+            vertical-align: top;
+            border-color: var(--sh-border);
+        }
+
+        .activity-table .col-when { width: 8.5rem; }
+        .activity-table .col-user { width: 5.5rem; }
+        .activity-table .col-tool { width: 11rem; }
+        .activity-table .col-controls { width: 15rem; }
+
+    .activity-row {
+        cursor: pointer;
+    }
+
+        .activity-row:hover td,
+        .activity-row:focus-visible td {
+            background: var(--sh-surface-muted);
+        }
+
+        .activity-row:focus-visible {
+            outline: 2px solid var(--sh-accent);
+            outline-offset: -2px;
+        }
+
+        /* The row's left edge carries its control outcome, like the session colours. */
+        .activity-row td:first-child {
+            border-left: 3px solid transparent;
+        }
+
+        .severity-row-warning td:first-child {
+            border-left-color: #f59e0b;
+        }
+
+        .severity-row-block td:first-child {
+            border-left-color: #ef4444;
+        }
+
+    .activity-table .mono {
+        font-family: var(--sh-font-mono);
+        font-size: 0.76rem;
+    }
+
+    .activity-user {
+        color: var(--sh-user);
+        font-weight: 600;
+    }
+
+    .activity-prompt {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .activity-session,
+    .activity-none {
+        color: var(--sh-text-subtle);
+        font-size: 0.72rem;
+    }
+
+    .activity-controls {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        font-size: 0.75rem;
+    }
+
+        .activity-controls .control-pip-wrap {
+            margin-top: 0.2rem;
+        }
+</style>

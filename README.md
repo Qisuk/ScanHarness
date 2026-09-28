@@ -91,13 +91,17 @@ the same response, is told to use only facts in it, and falls back to the rule-b
 **Summarise session** (next to the tabs) opens the **Session** tab with a report on everything
 done so far:
 
-- **Tools called**: every tool call in order, with its time, parameters, status and brain. It's
-  built directly from the calls, so the same session always gives the same list.
 - **Session summary**: a summary of all the per-action summaries, written by the brain selected
   in the **Summary** menu and capped at 500 words (enforced in code, whatever the brain returns).
-  LLM brains fall back to the rule-based summary if the model fails.
+  LLM brains fall back to the rule-based summary if the model fails. A row of pips shows the
+  controls tripped in the session: one per warning and block (up to 3 of each, then "+N more"),
+  each opening its details.
+- **Controls tripped**: every control that fired, in order, with its action (Warning or Block),
+  the control and stage, and the message that tripped it.
+- **Tools called**: every tool call in order, with its time, parameters, status and brain.
 
-Both are also logged.
+The two lists are built directly from the session's log, so the same session always gives the
+same lists. All three are also logged.
 
 Available brains:
 
@@ -133,6 +137,29 @@ The page starts on a **new session**. The **Session** menu lists your saved sess
 titled by their first request). Opening one recreates it: the activity feed, tool calls and
 history, the last tool output, the agent's reply and summary, and prompt history. You can carry on
 working in it. **New** starts a fresh session.
+
+Sessions are coloured by the most severe control tripped in them: **green** none, **amber** a
+warning, **red** something was blocked. Their labels also give the counts (e.g. "2 warnings ·
+1 block"), so the colour isn't the only signal.
+
+### All activity (admin)
+
+Admin opens on the **All activity** tab: every request by every user, newest first, with filters for
+**user**, **session**, a **from/to** time range and **controls** (any, none tripped, warning,
+block, or warning or block). For example: everything in a timeframe, everything one user did in a
+timeframe, or every request that raised a warning, by anyone. Each row shows the request, its
+tool call and status, and the controls it tripped (with a pip); rows are edged amber or red by
+their most severe control. Select a row to open its session with that request's output shown.
+The view shows the newest 500 matches and says when there are more. Times are entered in the
+browser's local time, which matches the server while the app runs locally.
+
+**Summarise activity** (in the results box) summarises everything matching the current filters,
+i.e. the selected window, not just the rows shown. It shows the window, an overview (requests,
+users, tool calls, warnings and blocks) and a summary under 500 words written by the brain
+selected in the **Summary** menu (rule-based for the keyword brain; LLM brains fall back to it on
+failure, and get at most the 200 most recent requests). Content a control blocked or withheld is
+never passed to the summarising brain, only the fact that it was blocked. The summary itself is
+checked by Chat Out controls, and the request and summary are logged in the admin's session.
 
 ## Persistence
 

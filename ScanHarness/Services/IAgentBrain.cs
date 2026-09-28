@@ -29,5 +29,13 @@ namespace ScanHarness.Services
         /// </summary>
         /// <param name="toolCalls">Every tool call in the session, with their summaries.</param>
         Task<ActionSummary> SummarizeSessionAsync(IReadOnlyList<ToolCall> toolCalls);
+
+        /// <summary>
+        /// Summarise activity across sessions and users (the admin's All activity view), in at most
+        /// <see cref="SessionReportBuilder.MaxSummaryWords"/> words.
+        /// </summary>
+        /// <param name="rows">The requests to summarise, newest first.</param>
+        /// <param name="window">Plain description of the filters, e.g. "all users, 28 Sep 09:00 to 12:00".</param>
+        Task<ActionSummary> SummarizeActivityAsync(IReadOnlyList<ActivityRow> rows, string window);
     }
 }
