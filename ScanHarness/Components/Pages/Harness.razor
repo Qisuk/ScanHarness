@@ -47,6 +47,15 @@
                     aria-selected="@(activeTab == "main")" @onclick='() => activeTab = "main"'>Main</button>
             <button type="button" role="tab" class="box-tab @(activeTab == "history" ? "active" : "")"
                     aria-selected="@(activeTab == "history")" @onclick='() => activeTab = "history"'>History</button>
+            <button type="button" role="tab" class="box-tab @(activeTab == "session" ? "active" : "")"
+                    aria-selected="@(activeTab == "session")" @onclick='() => activeTab = "session"'>Session</button>
+
+            <button type="button" class="btn btn-sm btn-outline-secondary box-tabs-action"
+                    title="Summarise every action in this session using the summary brain, and list the tools called"
+                    disabled="@(isExecuting || isSummarizingSession || !ToolCallService.GetToolCalls().Any())"
+                    @onclick="SummarizeSessionAsync">
+                @(isSummarizingSession ? "Summarising..." : "Summarise session")
+            </button>
         </div>
 
         <div class="tab-panel">
@@ -63,7 +72,7 @@
                                @onkeydown="HandlePromptKeyDown"
                                placeholder="e.g. scan example.com for links, or attack example.com" />
                         <button class="btn btn-primary px-4" @onclick="SubmitPrompt"
-                                disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting)">
+                                disabled="@(string.IsNullOrWhiteSpace(prompt) || isExecuting || isSummarizingSession)">
                             @(isThinking ? "Thinking..." : isSummarizing ? "Summarizing..." : isExecuting ? "Working..." : "Send")
                         </button>
                     </div>
@@ -104,6 +113,12 @@
             {
                 <HistoryTab ToolCalls="ToolCallService.GetToolCalls()" />
             }
+
+            <!-- Session Tab -->
+            @if (activeTab == "session")
+            {
+                <SessionSummaryTab Report="sessionReport" IsGenerating="isSummarizingSession" />
+            }
         </div>
     </section>
 
@@ -127,8 +142,8 @@
 
     <!-- Status bar: current state, brains, LLM endpoint problems and counts -->
     <footer class="console-status">
-        <span class="status-state @(isExecuting ? "is-busy" : "")">
-            @(isThinking ? "Thinking" : isSummarizing ? "Summarizing" : isExecuting ? "Working" : "Ready")
+        <span class="status-state @(isExecuting || isSummarizingSession ? "is-busy" : "")">
+            @(isThinking ? "Thinking" : isSummarizing ? "Summarizing" : isSummarizingSession ? "Summarising session" : isExecuting ? "Working" : "Ready")
         </span>
         <span>Decide: @BrainSelector.Current.Name</span>
         <span>Summary: @BrainSelector.SummaryBrain.Name</span>
@@ -170,6 +185,10 @@
 
     // The brain's summary of the last finished action, shown under the agent's decision.
     private string agentSummary = "";
+
+    // The latest session report (summary of summaries + tool list), and whether one is being made.
+    private SessionReport? sessionReport;
+    private bool isSummarizingSession = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -375,6 +394,47 @@
         }
     }
 
+    // Builds the session report: the tool-call list is deterministic (built from the calls themselves),
+    // while the summary of summaries is written by the brain chosen in the Summary picker. Both are logged.
+    private async Task SummarizeSessionAsync()
+    {
+        var calls = ToolCallService.GetToolCalls();
+        if (calls.Count == 0 || isSummarizingSession)
+            return;
+
+        var brain = BrainSelector.SummaryBrain;
+        activeTab = "session";
+        isSummarizingSession = true;
+        LogService.LogUser($"Requested a summary of the session ({calls.Count} tool calls)", brain: brain.Name);
+        await InvokeAsync(StateHasChanged);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        ActionSummary summary;
+        try
+        {
+            summary = await brain.SummarizeSessionAsync(calls);
+        }
+        finally
+        {
+            isSummarizingSession = false;
+        }
+
+        var toolList = SessionReportBuilder.ListToolCalls(calls);
+        sessionReport = new SessionReport(toolList, summary.Text, brain.Name, summary.FallbackReason, DateTime.UtcNow);
+
+        if (summary.FallbackReason != null)
+        {
+            LogService.LogWarning($"Brain couldn't summarise the session ({summary.FallbackReason}); used the rule-based summary", brain: brain.Name);
+        }
+
+        var listText = string.Join("; ", toolList.Select(t =>
+            $"{t.Number}. {t.Tool}/{t.Action}{(t.Parameters.Length > 0 ? $" ({t.Parameters})" : "")} {t.Status}"));
+        LogService.LogInfo($"Tools called this session: {listText}", brain: brain.Name);
+        LogService.LogSummary(
+            $"Session summary ({sessionReport.SummaryWordCount} words · {stopwatch.Elapsed.TotalSeconds:0.0}s): {summary.Text.Replace("\n\n", " ")}",
+            brain: brain.Name);
+    }
+
     private void ClearLogs()
     {
         LogService.Clear();
@@ -511,6 +571,15 @@
         position: relative;
         z-index: 1;
         margin-bottom: -1px;
+    }
+
+    /* The Summarise session button sits at the right end of the tab strip. */
+    .box-tabs-action {
+        margin-left: auto;
+        align-self: center;
+        margin-bottom: 3px;
+        padding: 0.1rem 0.65rem;
+        font-size: 0.74rem;
     }
 
     .box-tab {

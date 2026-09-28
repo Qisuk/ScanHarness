@@ -140,6 +140,44 @@ public class HarnessUITests : PageTest
         await Expect(Page.Locator("#summary-brain-select")).ToHaveValueAsync("same");
     }
 
+    private ILocator SummariseSessionButton => Page.GetByRole(AriaRole.Button, new() { Name = "Summarise session" });
+
+    [Test]
+    public async Task Summarise_session_is_disabled_until_a_tool_has_been_called()
+    {
+        await GotoHarnessAsync();
+
+        await Expect(SummariseSessionButton).ToBeDisabledAsync();
+    }
+
+    [Test]
+    public async Task Summarise_session_lists_every_tool_called_and_summarises_the_session()
+    {
+        await GotoHarnessAsync();
+
+        foreach (var request in new[] { "what's the weather in London?", "scan example.com for links" })
+        {
+            await PromptInput.FillAsync(request);
+            await SendButton.ClickAsync();
+            // Wait for the action's own summary so the call has finished before the next one.
+            await Expect(Page.Locator(".agent-summary")).ToContainTextAsync("The user asked me to", new() { Timeout = 20000 });
+            await Expect(SendButton).ToBeDisabledAsync(); // input cleared
+        }
+
+        await SummariseSessionButton.ClickAsync();
+
+        // Deterministic tool list, in call order.
+        var rows = Page.Locator(".session-tools-table tbody tr");
+        await Expect(rows).ToHaveCountAsync(2, new() { Timeout = 20000 });
+        await Expect(rows.Nth(0)).ToContainTextAsync("weather/forecast");
+        await Expect(rows.Nth(0)).ToContainTextAsync("location=London");
+        await Expect(rows.Nth(1)).ToContainTextAsync("scanner/simple-scanner");
+
+        // Summary of summaries from the (keyword) summary brain, which is also logged.
+        await Expect(Page.Locator(".session-summary")).ToContainTextAsync("2 tool calls this session");
+        await Expect(Page.Locator(".feed-item", new() { HasText = "Session summary (" })).ToBeVisibleAsync();
+    }
+
     [Test]
     public async Task Dark_theme_is_the_default()
     {

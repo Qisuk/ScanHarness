@@ -122,6 +122,80 @@ namespace ScanHarness.Services.Llm
             }
         }
 
+        /// <summary>
+        /// Asks the model to summarise the session from its per-action summaries. The word limit is
+        /// enforced on the reply whatever the model returns; on failure the rule-based summary is used.
+        /// </summary>
+        public async Task<ActionSummary> SummarizeSessionAsync(IReadOnlyList<ToolCall> toolCalls)
+        {
+            if (toolCalls.Count == 0)
+            {
+                return new ActionSummary(SessionReportBuilder.EmptySessionSummary);
+            }
+
+            try
+            {
+                var response = await _client.CreateChatCompletionAsync(BuildSessionSummaryRequest(toolCalls));
+                var text = CleanSessionSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
+                if (text.Length > 0)
+                {
+                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords));
+                }
+
+                return new ActionSummary(SessionReportBuilder.CombineSummaries(toolCalls), "the model returned an empty summary");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
+            {
+                var reason = ex is TaskCanceledException ? "the request timed out" : ex.Message;
+                return new ActionSummary(SessionReportBuilder.CombineSummaries(toolCalls), reason);
+            }
+        }
+
+        /// <summary>Builds the session summary request: each call's outcome and summary, oldest first.</summary>
+        internal JsonObject BuildSessionSummaryRequest(IReadOnlyList<ToolCall> toolCalls)
+        {
+            var actions = new JsonArray();
+            foreach (var (call, index) in toolCalls.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id, StringComparer.Ordinal).Select((c, i) => (c, i)))
+            {
+                actions.Add(new JsonObject
+                {
+                    ["number"] = index + 1,
+                    ["action"] = ToolResultSummarizer.DescribeRequest(call),
+                    ["status"] = call.Status.ToString(),
+                    ["summary"] = string.IsNullOrWhiteSpace(call.Summary) ? ToolResultSummarizer.Summarize(call) : call.Summary,
+                });
+            }
+
+            return new JsonObject
+            {
+                ["model"] = Model,
+                ["temperature"] = _temperature,
+                ["stream"] = false,
+                // A little over 450 words of English; the hard 500-word limit is applied afterwards.
+                ["max_tokens"] = 800,
+                ["messages"] = Messages(SessionSummaryInstructions, new JsonObject { ["actions"] = actions }.ToJsonString()),
+            };
+        }
+
+        private const string SessionSummaryInstructions =
+            "You summarise a ScanHarness session (a demo harness whose tools are simulations) for the user.\n" +
+            "You are given every action taken in the session, in order, each with its status and an existing summary.\n" +
+            "Write one overall summary in plain prose of no more than 450 words: what the user asked for across the " +
+            "session, what the tools reported (group similar actions together), which actions failed or were rejected, " +
+            "and any notable results.\n" +
+            "Use only facts from the given summaries. Never invent findings, numbers, names or URLs.\n" +
+            "Plain text only: no markdown, headings or bullet lists. Short paragraphs are fine.";
+
+        // Keeps paragraph breaks (unlike CleanSummary) but drops markdown emphasis, wrapping quotes and extra blank lines.
+        private static string CleanSessionSummary(string? text)
+        {
+            var cleaned = (text ?? "").Replace("**", "").Replace("\r\n", "\n").Trim().Trim('"', '“', '”').Trim();
+            var paragraphs = cleaned.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => string.Join(" ", p.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+                .Where(p => p.Length > 0);
+            return string.Join("\n\n", paragraphs);
+        }
+
         /// <summary>Builds the summary request: the user's request, what was done, and the tool's raw response.</summary>
         internal JsonObject BuildSummaryRequest(string prompt, ToolCall toolCall)
         {
