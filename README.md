@@ -35,7 +35,21 @@ Or open `ScanHarness/ScanHarness.slnx` in Visual Studio and start both projects.
 
 ## Agent brains
 
-Pick the brain from the **Brain** menu at the top of the harness page:
+A brain has two jobs, each picked from its own menu at the top of the harness page:
+
+- **Decide**: choose which tool to call (and its arguments) for your request.
+- **Summary**: after every action (completed, failed, or rejected at the approval step), summarise
+  what you asked for and what the tool returned, e.g. *"The user asked me to run a simulated attack
+  against https://test.example.com. The attack tool found 8 high-severity vulnerabilities, including
+  Remote code execution risk…"*. Defaults to **Same as decision**; pick a different brain to, say,
+  decide with the instant keyword brain and summarise with an LLM.
+
+Summaries are shown under the agent's reply and in the tool output, and logged. The keyword brain
+builds its summary from the tool's response with fixed rules; an LLM brain writes its own from
+the same response, is told to use only facts in it, and falls back to the rule-based summary
+(logging why) if the model fails.
+
+Available brains:
 
 - **Keyword brain**: rule-based, instant, always available. Used as the fallback.
 - **LLM brains**: one per model served by an **OpenAI-compatible** endpoint (`/v1/models`,
@@ -48,7 +62,7 @@ location the user didn't actually type is discarded rather than acted on.
 
 ## Logging
 
-Every request, decision, approval and tool call is recorded with the **brain** that handled it:
+Every request, decision, approval, tool call and summary is recorded with the **brain** that handled it:
 shown on your requests in the activity feed, in the History tab's Brain column and in the tool
 output. The audit log (`logs/toolcalls-<date>.log` next to the app binaries) is tab-separated:
 `timestamp  level  tool-call-id  brain  message`, with `-` for empty columns.
@@ -72,7 +86,8 @@ before `docker compose up` and point `Llm:BaseUrl` at that port.
 | `Enabled` | `true` | `false` offers only the keyword brain. |
 | `BaseUrl` | `http://localhost:11434/v1` | OpenAI-compatible base URL, including `/v1`. |
 | `ApiKey` | empty | Bearer token for hosted APIs (use user secrets, not appsettings). |
-| `DefaultModel` | empty | Model selected when the page opens; empty starts on the keyword brain. |
+| `DefaultModel` | empty | Decision brain when the page opens (model id or `keyword`); empty starts on the keyword brain. |
+| `DefaultSummaryModel` | empty | Summary brain when the page opens (model id or `keyword`); empty uses the decision brain. |
 | `DecisionMode` | `JsonSchema` | `JsonSchema` (structured output; most accurate in our evals and works with any chat model) or `Tools` (OpenAI function calling). |
 | `Temperature` | `0` | Keeps decisions repeatable. |
 | `TimeoutSeconds` | `180` | Per decision; the first call to a model includes loading it. |

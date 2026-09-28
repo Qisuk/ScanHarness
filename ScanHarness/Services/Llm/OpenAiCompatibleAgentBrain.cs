@@ -98,6 +98,101 @@ namespace ScanHarness.Services.Llm
             }
         }
 
+        /// <summary>
+        /// Asks the model to summarise the finished call from the tool's actual response. Falls back to
+        /// the rule-based <see cref="ToolResultSummarizer"/> when the model fails or replies with nothing.
+        /// </summary>
+        public async Task<ActionSummary> SummarizeAsync(string prompt, ToolCall toolCall)
+        {
+            try
+            {
+                var response = await _client.CreateChatCompletionAsync(BuildSummaryRequest(prompt, toolCall));
+                var text = CleanSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
+                if (text.Length > 0)
+                {
+                    return new ActionSummary(text);
+                }
+
+                return new ActionSummary(ToolResultSummarizer.Summarize(toolCall), "the model returned an empty summary");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
+            {
+                var reason = ex is TaskCanceledException ? "the request timed out" : ex.Message;
+                return new ActionSummary(ToolResultSummarizer.Summarize(toolCall), reason);
+            }
+        }
+
+        /// <summary>Builds the summary request: the user's request, what was done, and the tool's raw response.</summary>
+        internal JsonObject BuildSummaryRequest(string prompt, ToolCall toolCall)
+        {
+            var outcome = toolCall.Status switch
+            {
+                ToolCallStatus.Completed => "completed",
+                ToolCallStatus.Failed => "failed",
+                ToolCallStatus.Cancelled => "rejected by the user, so the tool was not run",
+                var other => other.ToString()
+            };
+
+            var context = new JsonObject
+            {
+                ["user_request"] = prompt,
+                ["action"] = ToolResultSummarizer.DescribeRequest(toolCall),
+                ["tool"] = ToolResultSummarizer.ToolName(toolCall),
+                ["outcome"] = outcome,
+                ["error"] = toolCall.Error,
+                ["tool_response"] = ToolResponseNode(toolCall.Result),
+            };
+
+            return new JsonObject
+            {
+                ["model"] = Model,
+                ["temperature"] = _temperature,
+                ["stream"] = false,
+                ["messages"] = Messages(SummaryInstructions, context.ToJsonString()),
+            };
+        }
+
+        private const string SummaryInstructions =
+            "You report the outcome of a tool call made by ScanHarness, a demo harness whose tools are simulations.\n" +
+            "Write two or three plain sentences. Start with \"The user asked me to <action>.\" using the given action, " +
+            "then say what the tool returned: the status and the key facts, such as counts, severities, notable " +
+            "findings, links or temperatures.\n" +
+            "Use only facts that appear in tool_response. Never invent findings, numbers, names or URLs.\n" +
+            "If the outcome is failed or rejected, say so and don't describe any result.\n" +
+            "Plain text only: no markdown, lists or quotes around the answer.";
+
+        private const int MaxToolResponseChars = 4000;
+
+        // Embeds the tool's JSON response as JSON (so the model sees structure), truncated as text if very large.
+        private static JsonNode? ToolResponseNode(string? result)
+        {
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                return null;
+            }
+
+            if (result.Length > MaxToolResponseChars)
+            {
+                return JsonValue.Create(result[..MaxToolResponseChars] + "… (truncated)");
+            }
+
+            try
+            {
+                return JsonNode.Parse(result);
+            }
+            catch (JsonException)
+            {
+                return JsonValue.Create(result);
+            }
+        }
+
+        // Models sometimes wrap the answer in quotes or markdown emphasis; strip that and collapse whitespace.
+        private static string CleanSummary(string? text)
+        {
+            var cleaned = (text ?? "").Trim().Trim('"', '“', '”').Replace("**", "").Trim();
+            return string.Join(" ", cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        }
+
         /// <summary>Builds the chat completion request for the configured decision mode.</summary>
         internal JsonObject BuildRequest(string prompt)
         {

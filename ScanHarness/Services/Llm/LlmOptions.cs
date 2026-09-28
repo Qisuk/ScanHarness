@@ -31,6 +31,12 @@ namespace ScanHarness.Services.Llm
         /// <summary>Model selected when the page opens. Empty means start with the keyword brain.</summary>
         public string? DefaultModel { get; set; }
 
+        /// <summary>
+        /// Brain that summarises each finished action when the page opens: a model id or "keyword".
+        /// Empty means use the same brain that made the decision.
+        /// </summary>
+        public string? DefaultSummaryModel { get; set; }
+
         /// <summary>Whether to use tool calling or JSON-schema structured output.</summary>
         public LlmDecisionMode DecisionMode { get; set; } = LlmDecisionMode.JsonSchema;
 

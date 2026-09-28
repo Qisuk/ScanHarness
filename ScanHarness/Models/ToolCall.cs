@@ -14,6 +14,15 @@ namespace ScanHarness.Models
 
         /// <summary>Name of the agent brain that chose this call, e.g. "llama3.1:8b (LLM)".</summary>
         public string? Brain { get; set; }
+
+        /// <summary>Error message when the call failed (e.g. the tool API was unreachable).</summary>
+        public string? Error { get; set; }
+
+        /// <summary>The brain's summary of what was done and what the tool returned, once the call has finished.</summary>
+        public string? Summary { get; set; }
+
+        /// <summary>Name of the brain that wrote <see cref="Summary"/>; may differ from <see cref="Brain"/>.</summary>
+        public string? SummaryBrain { get; set; }
     }
 
     public class LogEntry
@@ -54,6 +63,9 @@ namespace ScanHarness.Models
         Warning,
         Error,
         Success,
-        User
+        User,
+
+        /// <summary>The brain's summary of a finished action.</summary>
+        Summary
     }
 }

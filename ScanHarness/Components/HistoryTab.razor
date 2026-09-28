@@ -44,6 +44,11 @@
                         <tr class="history-details-row">
                             <td colspan="6">
                                 <div class="expanded-details">
+                                    @if (!string.IsNullOrEmpty(call.Summary))
+                                    {
+                                        <div class="output-label">Summary</div>
+                                        <p class="history-summary">@call.Summary</p>
+                                    }
                                     <div class="output-label">Parameters</div>
                                     <pre class="sh-code">@(call.Parameters.Count == 0 ? "(none)" : string.Join("\n", call.Parameters.Select(p => $"{p.Key}: {p.Value}")))</pre>
 
@@ -115,6 +120,12 @@
         font-family: var(--sh-font-mono);
         font-size: 0.78rem;
         color: var(--sh-text-muted);
+    }
+
+    .history-summary {
+        margin: 0 0 0.75rem;
+        font-size: 0.85rem;
+        line-height: 1.5;
     }
 
     .history-has-result {

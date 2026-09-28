@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using ScanHarness.Models;
+using ScanHarness.Services;
 using ScanHarness.Services.Llm;
 using Xunit;
 
@@ -227,6 +229,83 @@ namespace ScanHarness.Tests
 
             Assert.NotNull(weather["properties"]!["location"]);
             Assert.Empty(weather["required"]!.AsArray());
+        }
+
+        private static ToolCall FinishedAttack() => new()
+        {
+            Tool = "attack",
+            Action = "execute",
+            Parameters = new() { ["url"] = "https://test.example.com" },
+            Status = ToolCallStatus.Completed,
+            Result = "{\"status\":\"success\",\"vulnerabilitiesFound\":2,\"severity\":\"low\",\"details\":{\"findings\":[\"Weak password policy\",\"Missing headers\"]}}",
+        };
+
+        [Fact]
+        public async Task Summary_is_the_models_reply_cleaned_up()
+        {
+            var reply = "\"The user asked me to run a simulated attack against https://test.example.com.  The attack tool found **2** low-severity issues.\"";
+            var brain = BrainFor(FakeHttpMessageHandler.Returning(ContentResponse(reply)));
+
+            var summary = await brain.SummarizeAsync("attack test.example.com", FinishedAttack());
+
+            Assert.Equal("The user asked me to run a simulated attack against https://test.example.com. The attack tool found 2 low-severity issues.", summary.Text);
+            Assert.Null(summary.FallbackReason);
+        }
+
+        [Fact]
+        public async Task Summary_request_gives_the_model_the_request_outcome_and_tool_response()
+        {
+            var handler = FakeHttpMessageHandler.Returning(ContentResponse("ok"));
+            await BrainFor(handler).SummarizeAsync("attack test.example.com", FinishedAttack());
+
+            var request = JsonNode.Parse(handler.Requests[0].Body)!;
+            Assert.Null(request["tools"]);
+            Assert.Null(request["response_format"]);
+
+            var context = JsonNode.Parse(request["messages"]![1]!["content"]!.GetValue<string>())!;
+            Assert.Equal("attack test.example.com", context["user_request"]!.GetValue<string>());
+            Assert.Equal("run a simulated attack against https://test.example.com", context["action"]!.GetValue<string>());
+            Assert.Equal("completed", context["outcome"]!.GetValue<string>());
+            // The tool response is embedded as JSON, not as an escaped string.
+            Assert.Equal(2, context["tool_response"]!["vulnerabilitiesFound"]!.GetValue<int>());
+        }
+
+        [Fact]
+        public async Task Summary_tells_the_model_when_the_user_rejected_the_call()
+        {
+            var handler = FakeHttpMessageHandler.Returning(ContentResponse("ok"));
+            var call = FinishedAttack();
+            call.Status = ToolCallStatus.Cancelled;
+            call.Result = null;
+
+            await BrainFor(handler).SummarizeAsync("attack test.example.com", call);
+
+            var context = JsonNode.Parse(JsonNode.Parse(handler.Requests[0].Body)!["messages"]![1]!["content"]!.GetValue<string>())!;
+            Assert.StartsWith("rejected by the user", context["outcome"]!.GetValue<string>());
+            Assert.Null(context["tool_response"]);
+        }
+
+        [Fact]
+        public async Task Summary_falls_back_to_the_rule_based_summary_when_the_model_fails()
+        {
+            var brain = BrainFor(FakeHttpMessageHandler.Throwing(new HttpRequestException("Connection refused")));
+            var call = FinishedAttack();
+
+            var summary = await brain.SummarizeAsync("attack test.example.com", call);
+
+            Assert.Equal(ToolResultSummarizer.Summarize(call), summary.Text);
+            Assert.Equal("Connection refused", summary.FallbackReason);
+        }
+
+        [Fact]
+        public async Task Empty_summary_falls_back_to_the_rule_based_summary()
+        {
+            var brain = BrainFor(FakeHttpMessageHandler.Returning(ContentResponse("   ")));
+
+            var summary = await brain.SummarizeAsync("attack test.example.com", FinishedAttack());
+
+            Assert.StartsWith("The user asked me to run a simulated attack", summary.Text);
+            Assert.NotNull(summary.FallbackReason);
         }
 
         [Fact]

@@ -102,6 +102,45 @@ public class HarnessUITests : PageTest
     }
 
     [Test]
+    public async Task Finished_action_is_summarised_to_the_user_and_logged()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FillAsync("what's the weather in London?");
+        await SendButton.ClickAsync();
+
+        // The summary always starts with what the user asked for; the result part depends on
+        // whether the demo tool API is running, so only the request part is checked here.
+        var summary = Page.Locator(".agent-summary");
+        await Expect(summary).ToContainTextAsync("The user asked me to get the weather forecast for London.", new() { Timeout = 20000 });
+
+        var logged = Page.Locator(".feed-item", new() { HasText = "The user asked me to get the weather forecast for London." });
+        await Expect(logged.Locator(".badge")).ToHaveTextAsync("Summary");
+    }
+
+    [Test]
+    public async Task Rejected_attack_is_summarised_as_not_run()
+    {
+        await GotoHarnessAsync();
+
+        await PromptInput.FillAsync("attack example.com");
+        await SendButton.ClickAsync();
+        await Expect(Page.Locator(".confirmation-modal")).ToBeVisibleAsync(new() { Timeout = 15000 });
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Reject" }).ClickAsync();
+
+        await Expect(Page.Locator(".agent-summary")).ToContainTextAsync(
+            "The user rejected the request, so the attack tool was not run.", new() { Timeout = 15000 });
+    }
+
+    [Test]
+    public async Task Summary_brain_picker_defaults_to_the_decision_brain()
+    {
+        await GotoHarnessAsync();
+
+        await Expect(Page.Locator("#summary-brain-select")).ToHaveValueAsync("same");
+    }
+
+    [Test]
     public async Task Attack_request_prompts_for_approval_and_logs_the_decision()
     {
         await GotoHarnessAsync();

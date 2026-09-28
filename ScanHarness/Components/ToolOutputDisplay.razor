@@ -14,6 +14,11 @@
         </div>
     </div>
 
+    @if (!string.IsNullOrEmpty(ToolCall.Summary))
+    {
+        <p class="output-summary">@ToolCall.Summary</p>
+    }
+
     @if (ToolCall.Parameters.Any() || ToolCall.Brain != null)
     {
         <dl class="output-params">
@@ -21,6 +26,11 @@
             {
                 <dt>brain</dt>
                 <dd>@ToolCall.Brain</dd>
+            }
+            @if (ToolCall.SummaryBrain != null && ToolCall.SummaryBrain != ToolCall.Brain)
+            {
+                <dt>summary brain</dt>
+                <dd>@ToolCall.SummaryBrain</dd>
             }
             @foreach (var param in ToolCall.Parameters)
             {
@@ -32,7 +42,7 @@
 
     @if (ToolCall.Status == ToolCallStatus.Failed)
     {
-        <div class="output-alert">Tool execution failed.</div>
+        <div class="output-alert">Tool execution failed@(string.IsNullOrEmpty(ToolCall.Error) ? "." : $": {ToolCall.Error}")</div>
     }
 
     @if (!string.IsNullOrEmpty(ToolCall.Result))
@@ -99,6 +109,16 @@
             font-family: var(--sh-font-mono);
             word-break: break-all;
         }
+
+    .output-summary {
+        margin: 0 0 1rem;
+        padding: 0.6rem 0.85rem;
+        border-left: 3px solid var(--sh-success);
+        background: var(--sh-success-soft);
+        border-radius: var(--sh-radius-sm);
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
 
     .output-label {
         font-size: 0.75rem;

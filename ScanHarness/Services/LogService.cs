@@ -39,6 +39,10 @@ namespace ScanHarness.Services
         public void LogUser(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
             => Add(LogLevel.User, message, toolCallId, data, brain);
 
+        /// <summary>Logs the brain's summary of a finished action.</summary>
+        public void LogSummary(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Summary, message, toolCallId, data, brain);
+
         private void Add(LogLevel level, string message, string? toolCallId, Dictionary<string, object>? data, string? brain)
         {
             var entry = new LogEntry
