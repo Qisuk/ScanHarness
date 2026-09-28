@@ -23,6 +23,24 @@ namespace ScanHarness.Models
 
         /// <summary>Name of the brain that wrote <see cref="Summary"/>; may differ from <see cref="Brain"/>.</summary>
         public string? SummaryBrain { get; set; }
+
+        /// <summary>Session the call belongs to.</summary>
+        public string? SessionId { get; set; }
+
+        /// <summary>User who made the request that led to this call.</summary>
+        public string? UserName { get; set; }
+
+        /// <summary>"approved" or "rejected" once a user has decided on a call that needed approval.</summary>
+        public string? ApprovalDecision { get; set; }
+
+        /// <summary>When the approval decision was made (UTC).</summary>
+        public DateTime? ApprovalDecidedAt { get; set; }
+
+        /// <summary>User who approved or rejected the call.</summary>
+        public string? ApprovalDecidedBy { get; set; }
+
+        /// <summary>When the call reached a final status: completed, failed or cancelled (UTC).</summary>
+        public DateTime? CompletedAt { get; set; }
     }
 
     public class LogEntry
@@ -36,6 +54,13 @@ namespace ScanHarness.Models
         /// <summary>Name of the agent brain handling the request this entry belongs to, if any.</summary>
         public string? Brain { get; set; }
 
+        /// <summary>Session the entry belongs to.</summary>
+        public string? SessionId { get; set; }
+
+        /// <summary>User who performed the action the entry records.</summary>
+        public string? UserName { get; set; }
+
+        /// <summary>Structured details (e.g. the prompt or the brain's decision) so a session can be recreated.</summary>
         public Dictionary<string, object>? Data { get; set; }
     }
 

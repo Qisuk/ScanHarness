@@ -4,16 +4,45 @@
 @inject ToolCallService ToolCallService
 @inject LogService LogService
 @inject AgentBrainSelector BrainSelector
+@inject SessionState Session
+@inject ScanHarness.Services.Persistence.IActivityStore Store
 @rendermode InteractiveServer
 @implements IDisposable
 
 <PageTitle>Harness · ScanHarness</PageTitle>
 
 <div class="harness-container console">
-    <!-- Header: title, and which brains decide and summarise -->
+    <!-- Header: who is working and in which session, and which brains decide and summarise -->
     <header class="console-header sh-box">
         <h1 class="sh-box-title console-title">Tool Harness</h1>
-        <span class="console-subtitle">Scan a site, run a simulated attack or get the weather. Every call is logged.</span>
+        <div class="brain-pickers">
+            <div class="brain-picker" title="Placeholder sign-in: users see only their own sessions; admin sees everyone's">
+                <label for="user-select" class="brain-picker-label">User</label>
+                <select id="user-select" class="brain-select" value="@Session.CurrentUser.Name"
+                        @onchange="OnUserChanged" disabled="@IsBusy">
+                    @foreach (var user in HarnessUsers.All)
+                    {
+                        <option value="@user.Name">@user.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="brain-picker" title="Open a saved session to see everything that happened in it, or start a new one">
+                <label for="session-select" class="brain-picker-label">Session</label>
+                <select id="session-select" class="brain-select session-select" value="@Session.Current.Id"
+                        @onchange="OnSessionChanged" disabled="@IsBusy">
+                    @if (!Session.IsSaved)
+                    {
+                        <option value="@Session.Current.Id">New session</option>
+                    }
+                    @foreach (var saved in savedSessions)
+                    {
+                        <option value="@saved.Id">@DescribeSession(saved)</option>
+                    }
+                </select>
+                <button type="button" class="box-link" title="Start a new session" disabled="@(IsBusy || !Session.IsSaved)"
+                        @onclick="StartNewSession">New</button>
+            </div>
+        </div>
         <div class="brain-pickers">
             <div class="brain-picker" title="@(BrainSelector.LlmStatus ?? "Choose which brain decides the tool to call")">
                 <span class="agent-chip-dot @(BrainSelector.LlmStatus == null ? "" : "is-offline")"></span>
@@ -111,13 +140,13 @@
             <!-- History Tab -->
             @if (activeTab == "history")
             {
-                <HistoryTab ToolCalls="ToolCallService.GetToolCalls()" />
+                <HistoryTab ToolCalls="ToolCallService.GetToolCalls()" ShowUsers="ShowUsers" />
             }
 
             <!-- Session Tab -->
             @if (activeTab == "session")
             {
-                <SessionSummaryTab Report="sessionReport" IsGenerating="isSummarizingSession" />
+                <SessionSummaryTab Report="sessionReport" IsGenerating="isSummarizingSession" ShowUsers="ShowUsers" />
             }
         </div>
     </section>
@@ -135,7 +164,7 @@
             }
             @foreach (var log in recentLogs)
             {
-                <ActivityFeedItem LogEntry="log" />
+                <ActivityFeedItem LogEntry="log" ShowUser="ShowUsers" />
             }
         </div>
     </aside>
@@ -190,13 +219,102 @@
     private SessionReport? sessionReport;
     private bool isSummarizingSession = false;
 
+    // Saved sessions the current user may open (every user's for admin), newest first.
+    private IReadOnlyList<HarnessSession> savedSessions = Array.Empty<HarnessSession>();
+
+    // Entries in the activity feed; a reopened session can be long, so show plenty.
+    private const int FeedSize = 200;
+
+    // User, session and brain choices are locked while anything is running.
+    private bool IsBusy => isExecuting || isSummarizingSession;
+
+    // Admin sees every user's activity, so entries show who performed them.
+    private bool ShowUsers => Session.CurrentUser.IsAdmin;
+
     protected override async Task OnInitializedAsync()
     {
         ToolCallService.OnToolCallsChanged += OnToolCallsChanged;
         LogService.OnLogsChanged += OnLogsChanged;
 
+        // Saved sessions come from the database; the page starts on a new session for the default user.
+        RefreshSessions();
+
         // Lists the LLM endpoint's models; falls back to the keyword brain if it's unreachable.
         await BrainSelector.InitializeAsync();
+    }
+
+    private void RefreshSessions() => savedSessions = Session.VisibleSessions();
+
+    private string DescribeSession(HarnessSession session)
+    {
+        var when = session.LastActivityAt.ToLocalTime().ToString("dd MMM HH:mm");
+        var title = session.Title ?? "(no requests)";
+        var owner = ShowUsers ? $"{session.UserName} · " : "";
+        return $"{owner}{when} · {title} · {session.ToolCallCount} call{(session.ToolCallCount == 1 ? "" : "s")}";
+    }
+
+    private void OnUserChanged(ChangeEventArgs e)
+    {
+        if (Session.SwitchUser(e.Value?.ToString() ?? ""))
+        {
+            ShowSession(Array.Empty<LogEntry>(), Array.Empty<ToolCall>());
+            RefreshSessions();
+        }
+    }
+
+    private void OnSessionChanged(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString() ?? "";
+        if (id == Session.Current.Id)
+            return;
+
+        // OpenSession refuses sessions this user may not see, even if the id was tampered with.
+        var session = Session.OpenSession(id);
+        if (session != null)
+        {
+            ShowSession(Store.LoadLogs(session.Id), Store.LoadToolCalls(session.Id));
+        }
+        RefreshSessions();
+    }
+
+    private void StartNewSession()
+    {
+        Session.StartNewSession();
+        ShowSession(Array.Empty<LogEntry>(), Array.Empty<ToolCall>());
+        RefreshSessions();
+    }
+
+    // Recreates a session in the UI from its stored entries and calls: the activity feed, tool
+    // calls and history, the last tool output, the agent's last reply and summary, and prompt history.
+    private void ShowSession(IReadOnlyList<LogEntry> logs, IReadOnlyList<ToolCall> calls)
+    {
+        LogService.LoadSession(logs);
+        ToolCallService.LoadSession(calls);
+
+        recentLogs = LogService.GetRecentLogs(FeedSize);
+        lastToolCall = calls.LastOrDefault();
+        pendingToolCall = null;
+        showConfirmation = false;
+        sessionReport = null;
+        activeTab = "main";
+
+        agentMessage = logs.Select(l => ReadData(l, "agentMessage")).LastOrDefault(m => m != null) ?? "";
+        agentSummary = lastToolCall?.Summary ?? "";
+
+        promptHistory.Clear();
+        promptHistory.AddRange(logs.Select(l => ReadData(l, "prompt")).OfType<string>());
+        historyIndex = promptHistory.Count;
+    }
+
+    // Log data holds plain values when logged live and JSON elements when loaded from the store.
+    private static string? ReadData(LogEntry entry, string key)
+    {
+        if (entry.Data == null || !entry.Data.TryGetValue(key, out var value) || value == null)
+            return null;
+
+        return value is System.Text.Json.JsonElement json
+            ? (json.ValueKind == System.Text.Json.JsonValueKind.String ? json.GetString() : json.ToString())
+            : value.ToString();
     }
 
     private void OnBrainChanged(ChangeEventArgs e)
@@ -220,7 +338,7 @@
 
     private void OnToolCallsChanged()
     {
-        recentLogs = LogService.GetRecentLogs(50);
+        recentLogs = LogService.GetRecentLogs(FeedSize);
         lastToolCall = ToolCallService.GetToolCalls().LastOrDefault();
 
         var waitingForApproval = ToolCallService.GetToolCalls()
@@ -237,7 +355,7 @@
 
     private void OnLogsChanged()
     {
-        recentLogs = LogService.GetRecentLogs(50);
+        recentLogs = LogService.GetRecentLogs(FeedSize);
         InvokeAsync(StateHasChanged);
     }
 
@@ -294,7 +412,8 @@
             // Log the user's request, then let the agent decide which tool (if any) to call. Every
             // entry for this request (and the tool call it triggers) records the brain that handled it.
             var brain = BrainSelector.Current;
-            LogService.LogUser($"Request: {userPrompt}", brain: brain.Name);
+            Session.RecordTitle(userPrompt);
+            LogService.LogUser($"Request: {userPrompt}", data: new() { ["prompt"] = userPrompt }, brain: brain.Name);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             isThinking = true;
             ToolDecision decision;
@@ -309,21 +428,34 @@
             var elapsed = $"{stopwatch.Elapsed.TotalSeconds:0.0}s";
             agentMessage = decision.Message;
 
+            // The full decision is stored with the log entry so the session can be recreated later.
+            var decisionData = new Dictionary<string, object>
+            {
+                ["agentMessage"] = decision.Message,
+                ["toolFound"] = decision.ToolFound,
+                ["tool"] = decision.Tool ?? "",
+                ["action"] = decision.Action ?? "",
+                ["parameters"] = decision.Parameters,
+                ["requiresApproval"] = decision.RequiresApproval,
+                ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds,
+            };
+
             if (decision.Error != null)
             {
                 // The brain itself failed (e.g. LLM endpoint down): nothing is called.
-                LogService.LogError($"Brain failed after {elapsed}: {decision.Error}", brain: brain.Name);
+                decisionData["error"] = decision.Error;
+                LogService.LogError($"Brain failed after {elapsed}: {decision.Error}", data: decisionData, brain: brain.Name);
                 return;
             }
 
             if (!decision.ToolFound || decision.Tool == null || decision.Action == null)
             {
                 // No suitable tool: report back to the user without calling anything.
-                LogService.LogWarning($"No tool selected for request: {userPrompt} · {elapsed}", brain: brain.Name);
+                LogService.LogWarning($"No tool selected for request: {userPrompt} · {elapsed}", data: decisionData, brain: brain.Name);
                 return;
             }
 
-            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {elapsed}", brain: brain.Name);
+            LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {elapsed}", data: decisionData, brain: brain.Name);
 
             // The approval requirement comes from the agent's decision, not the user.
             // The confirmation modal only appears when the chosen tool requires approval.
@@ -340,6 +472,8 @@
         finally
         {
             isExecuting = false;
+            // The session now has (or has more) saved activity; update its entry in the picker.
+            RefreshSessions();
         }
     }
 
@@ -362,8 +496,7 @@
             isSummarizing = false;
         }
 
-        toolCall.Summary = summary.Text;
-        toolCall.SummaryBrain = brain.Name;
+        ToolCallService.RecordSummary(toolCall, summary.Text, brain.Name);
         agentSummary = summary.Text;
 
         if (summary.FallbackReason != null)
@@ -371,7 +504,9 @@
             LogService.LogWarning($"Brain couldn't summarise ({summary.FallbackReason}); used the rule-based summary", toolCall.Id, brain: brain.Name);
         }
 
-        LogService.LogSummary($"{summary.Text} · {stopwatch.Elapsed.TotalSeconds:0.0}s", toolCall.Id, brain: brain.Name);
+        LogService.LogSummary($"{summary.Text} · {stopwatch.Elapsed.TotalSeconds:0.0}s", toolCall.Id,
+            data: new() { ["summary"] = summary.Text, ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds },
+            brain: brain.Name);
     }
 
     private void ApproveToolCall()
@@ -432,7 +567,14 @@
         LogService.LogInfo($"Tools called this session: {listText}", brain: brain.Name);
         LogService.LogSummary(
             $"Session summary ({sessionReport.SummaryWordCount} words · {stopwatch.Elapsed.TotalSeconds:0.0}s): {summary.Text.Replace("\n\n", " ")}",
+            data: new()
+            {
+                ["sessionSummary"] = summary.Text,
+                ["wordCount"] = sessionReport.SummaryWordCount,
+                ["fallbackReason"] = summary.FallbackReason ?? "",
+            },
             brain: brain.Name);
+        RefreshSessions();
     }
 
     private void ClearLogs()
@@ -496,6 +638,15 @@
         display: flex;
         gap: 0.4rem;
         margin-left: auto;
+    }
+
+        /* User and session on the left, brains on the right. */
+        .console-header > .brain-pickers:first-of-type {
+            margin-left: 0;
+        }
+
+    .session-select {
+        max-width: 22rem;
     }
 
     .brain-picker {

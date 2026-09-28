@@ -79,12 +79,46 @@ Dark, Light, or System (follows your operating system). The choice is remembered
 values under `:root[data-theme="dark"]`; `wwwroot/theme.js` applies the theme before the page is
 drawn and also switches on Bootstrap's own dark mode (`data-bs-theme`).
 
+## Users and sessions
+
+Pick a **User** at the top of the harness: `chris`, `raccoon`, `blob` or `admin`. This is a
+placeholder until proper authentication replaces it; it isn't a security boundary yet.
+
+- Each user sees only their **own** sessions. The server enforces this when a session is opened,
+  not just the UI.
+- **admin** sees every user's sessions, and every entry shows the user who performed it (the
+  request's label, a tag on other feed entries, and a User column in History and the session tool
+  list). If admin acts in another user's session, those entries are recorded as admin.
+
+The page starts on a **new session**. The **Session** menu lists your saved sessions (newest first,
+titled by their first request). Opening one recreates it: the activity feed, tool calls and
+history, the last tool output, the agent's reply and summary, and prompt history. You can carry on
+working in it. **New** starts a fresh session.
+
+## Persistence
+
+Everything is saved to a local **SQLite** database (`ScanHarness/Data/scanharness.db`, set by
+`Persistence:DatabasePath`; database files are git-ignored), and loaded from it when the app starts:
+
+| Table | Holds |
+|---|---|
+| `sessions` | Owner, start time, last activity, title |
+| `tool_calls` | Tool, action, parameters, status, the tool's full response, approval decision and who made it, error, summary, and every timestamp |
+| `log_entries` | Every activity feed entry with its user, brain and timestamp, plus structured data (the prompt, the agent's decision, summaries) |
+
+Together these are enough to recreate a session exactly. Calls left waiting or running when the
+app stopped are marked **interrupted** at the next start, with an entry in that session's timeline.
+
+Storage sits behind `IActivityStore` (`Services/Persistence`), so switching to another database
+means writing one new implementation and changing its registration in `Program.cs`.
+
 ## Logging
 
 Every request, decision, approval, tool call and summary is recorded with the **brain** that handled it:
 shown on your requests in the activity feed, in the History tab's Brain column and in the tool
-output. The audit log (`logs/toolcalls-<date>.log` next to the app binaries) is tab-separated:
-`timestamp  level  tool-call-id  brain  message`, with `-` for empty columns.
+output. Besides the database, an audit log (`logs/toolcalls-<date>.log` next to the app binaries) is
+tab-separated: `timestamp  level  session-id  user  tool-call-id  brain  message`, with `-` for
+empty columns.
 
 ### Local LLM with Docker
 

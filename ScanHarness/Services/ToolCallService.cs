@@ -1,22 +1,55 @@
 using ScanHarness.Models;
+using ScanHarness.Services.Persistence;
 using System.Text.Json;
 
 namespace ScanHarness.Services
 {
+    /// <summary>
+    /// Runs tool calls against the tool APIs, handles approval, and keeps the current session's calls.
+    /// Every call is saved to the activity store at each change of status, including the approval
+    /// decision and who made it, so a session can be recreated from the store.
+    /// </summary>
     public class ToolCallService
     {
         private readonly HttpClient _httpClient;
         private readonly LogService _logService;
+        private readonly SessionState? _session;
+        private readonly IActivityStore? _store;
         private readonly List<ToolCall> _toolCalls = new();
         private readonly Dictionary<string, TaskCompletionSource<bool>> _approvalWaiters = new();
         private readonly object _lockObject = new();
 
         public event Action? OnToolCallsChanged;
 
-        public ToolCallService(HttpClient httpClient, LogService logService)
+        /// <param name="session">Current user and session; calls are stamped with them. Optional for tests.</param>
+        /// <param name="store">Where calls are saved; null keeps them in memory only.</param>
+        public ToolCallService(HttpClient httpClient, LogService logService, SessionState? session = null, IActivityStore? store = null)
         {
             _httpClient = httpClient;
             _logService = logService;
+            _session = session;
+            _store = store;
+        }
+
+        /// <summary>Replaces the in-memory calls with a stored session's, e.g. when a session is opened.</summary>
+        public void LoadSession(IEnumerable<ToolCall> calls)
+        {
+            lock (_lockObject)
+            {
+                _toolCalls.Clear();
+                _toolCalls.AddRange(calls);
+            }
+
+            OnToolCallsChanged?.Invoke();
+        }
+
+        /// <summary>Records the brain's summary of a finished call and saves it.</summary>
+        public void RecordSummary(ToolCall toolCall, string summary, string summaryBrain)
+        {
+            toolCall.Summary = summary;
+            toolCall.SummaryBrain = summaryBrain;
+            Persist(toolCall);
+            OnToolCallsChanged?.Invoke();
         }
 
         /// <param name="brain">Name of the agent brain that chose this call; recorded on the call and every log entry.</param>
@@ -29,7 +62,9 @@ namespace ScanHarness.Services
                 Parameters = parameters,
                 RequiresApproval = requiresApproval,
                 Brain = brain,
-                Status = requiresApproval ? ToolCallStatus.WaitingForApproval : ToolCallStatus.Running
+                Status = requiresApproval ? ToolCallStatus.WaitingForApproval : ToolCallStatus.Running,
+                SessionId = _session?.Current.Id,
+                UserName = _session?.CurrentUser.Name,
             };
 
             lock (_lockObject)
@@ -37,6 +72,7 @@ namespace ScanHarness.Services
                 _toolCalls.Add(toolCall);
             }
 
+            Persist(toolCall);
             _logService.LogInfo($"Tool call initiated: {tool}/{action}", toolCall.Id, brain: brain);
 
             if (requiresApproval)
@@ -53,6 +89,8 @@ namespace ScanHarness.Services
                 if (!approved)
                 {
                     toolCall.Status = ToolCallStatus.Cancelled;
+                    toolCall.CompletedAt = DateTime.UtcNow;
+                    Persist(toolCall);
                     _logService.LogError($"Tool call cancelled by user: {tool}/{action}", toolCall.Id, brain: brain);
                     OnToolCallsChanged?.Invoke();
                     return toolCall;
@@ -60,6 +98,7 @@ namespace ScanHarness.Services
 
                 toolCall.IsApproved = true;
                 toolCall.Status = ToolCallStatus.Running;
+                Persist(toolCall);
             }
 
             try
@@ -69,17 +108,40 @@ namespace ScanHarness.Services
 
                 toolCall.Result = JsonSerializer.Serialize(result);
                 toolCall.Status = ToolCallStatus.Completed;
+                toolCall.CompletedAt = DateTime.UtcNow;
+                Persist(toolCall);
                 _logService.LogSuccess($"Tool call completed: {tool}/{action}", toolCall.Id, brain: brain);
             }
             catch (Exception ex)
             {
                 toolCall.Status = ToolCallStatus.Failed;
                 toolCall.Error = ex.Message;
+                toolCall.CompletedAt = DateTime.UtcNow;
+                Persist(toolCall);
                 _logService.LogError($"Tool call failed: {tool}/{action} - {ex.Message}", toolCall.Id, brain: brain);
             }
 
             OnToolCallsChanged?.Invoke();
             return toolCall;
+        }
+
+        // Saves the call's current state. Best-effort: a storage failure is logged, not thrown, so the call itself isn't affected.
+        private void Persist(ToolCall toolCall)
+        {
+            if (_store == null || _session == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _session.EnsureSaved();
+                _store.SaveToolCall(toolCall);
+            }
+            catch (Exception ex)
+            {
+                _logService.LogError($"Could not save tool call {toolCall.Tool}/{toolCall.Action}: {ex.Message}", toolCall.Id);
+            }
         }
 
         private async Task<object> CallToolApiAsync(string tool, string action, Dictionary<string, string> parameters)
@@ -114,26 +176,30 @@ namespace ScanHarness.Services
             throw new NotImplementedException($"Tool {tool}/{action} not implemented");
         }
 
-        public void ApproveToolCall(string toolCallId)
-        {
-            if (_approvalWaiters.ContainsKey(toolCallId))
-            {
-                var toolCall = GetToolCall(toolCallId);
-                _logService.LogUser($"Approved tool call: {Describe(toolCall)}", toolCallId, brain: toolCall?.Brain);
-                _approvalWaiters[toolCallId].SetResult(true);
-                _approvalWaiters.Remove(toolCallId);
-            }
-        }
+        public void ApproveToolCall(string toolCallId) => Decide(toolCallId, approved: true);
 
-        public void RejectToolCall(string toolCallId)
+        public void RejectToolCall(string toolCallId) => Decide(toolCallId, approved: false);
+
+        // Records the decision (what, when and by whom), logs it, then lets the waiting call continue.
+        private void Decide(string toolCallId, bool approved)
         {
-            if (_approvalWaiters.ContainsKey(toolCallId))
+            if (!_approvalWaiters.TryGetValue(toolCallId, out var waiter))
             {
-                var toolCall = GetToolCall(toolCallId);
-                _logService.LogUser($"Rejected tool call: {Describe(toolCall)}", toolCallId, brain: toolCall?.Brain);
-                _approvalWaiters[toolCallId].SetResult(false);
-                _approvalWaiters.Remove(toolCallId);
+                return;
             }
+
+            var toolCall = GetToolCall(toolCallId);
+            if (toolCall != null)
+            {
+                toolCall.ApprovalDecision = approved ? "approved" : "rejected";
+                toolCall.ApprovalDecidedAt = DateTime.UtcNow;
+                toolCall.ApprovalDecidedBy = _session?.CurrentUser.Name;
+                Persist(toolCall);
+            }
+
+            _logService.LogUser($"{(approved ? "Approved" : "Rejected")} tool call: {Describe(toolCall)}", toolCallId, brain: toolCall?.Brain);
+            waiter.SetResult(approved);
+            _approvalWaiters.Remove(toolCallId);
         }
 
         private static string Describe(ToolCall? toolCall)

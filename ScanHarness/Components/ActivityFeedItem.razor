@@ -5,6 +5,11 @@
 <div class="feed-item @StatusStyles.LevelClass(LogEntry.Level) @(IsUser ? "is-user" : "is-triggered")">
     <div class="feed-item-header">
         <span class="badge @StatusStyles.PillClass(LogEntry.Level)">@GetLabel()</span>
+        @* User entries already carry the name as their label, so only the other entries need the tag. *@
+        @if (ShowUser && !IsUser && !string.IsNullOrEmpty(LogEntry.UserName))
+        {
+            <span class="feed-item-user" title="User who performed this action">@LogEntry.UserName</span>
+        }
         <small class="feed-item-time" title="@LogEntry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">
             @LogEntry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
         </small>
@@ -21,9 +26,14 @@
     [Parameter]
     public LogEntry LogEntry { get; set; } = null!;
 
+    /// <summary>Show who performed the action (the admin view, which mixes users' activity).</summary>
+    [Parameter]
+    public bool ShowUser { get; set; }
+
     private bool IsUser => LogEntry.Level == LogLevel.User;
 
-    private string GetLabel() => IsUser ? "You" : LogEntry.Level.ToString();
+    // "You" only makes sense when every entry is the viewer's own; the admin view names the user.
+    private string GetLabel() => IsUser ? (ShowUser && LogEntry.UserName != null ? LogEntry.UserName : "You") : LogEntry.Level.ToString();
 }
 
 <style>
@@ -82,6 +92,17 @@
         color: var(--sh-text-subtle);
         font-family: var(--sh-font-mono);
         font-size: 0.72rem;
+    }
+
+    .feed-item-user {
+        margin-right: auto;
+        margin-left: 0.4rem;
+        padding: 0 0.4rem;
+        border-radius: 4px;
+        background: var(--sh-user-soft);
+        color: var(--sh-user);
+        font-size: 0.68rem;
+        font-weight: 600;
     }
 
     .feed-item-brain {

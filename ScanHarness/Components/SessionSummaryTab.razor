@@ -43,6 +43,10 @@
                     <tr>
                         <th class="col-number">#</th>
                         <th class="col-time">Time</th>
+                        @if (ShowUsers)
+                        {
+                            <th class="col-user">User</th>
+                        }
                         <th class="col-tool">Tool</th>
                         <th>Parameters</th>
                         <th class="col-status">Status</th>
@@ -55,6 +59,10 @@
                         <tr>
                             <td class="mono">@item.Number</td>
                             <td class="mono">@item.Time.ToLocalTime().ToString("HH:mm:ss")</td>
+                            @if (ShowUsers)
+                            {
+                                <td class="session-user">@(item.UserName ?? "—")</td>
+                            }
                             <td class="mono">@item.Tool/@item.Action</td>
                             <td class="mono">@(item.Parameters.Length == 0 ? "—" : item.Parameters)</td>
                             <td><span class="badge @StatusStyles.PillClass(item.Status)">@item.Status</span></td>
@@ -75,6 +83,10 @@
     /// <summary>True while the summary brain is writing the report.</summary>
     [Parameter]
     public bool IsGenerating { get; set; }
+
+    /// <summary>Adds a User column (the admin view, which mixes users' calls).</summary>
+    [Parameter]
+    public bool ShowUsers { get; set; }
 }
 
 <style>
@@ -140,6 +152,12 @@
         .session-tools-table .col-time { width: 5rem; }
         .session-tools-table .col-tool { width: 11rem; }
         .session-tools-table .col-status { width: 8.5rem; }
+        .session-tools-table .col-user { width: 5.5rem; }
+
+    .session-user {
+        color: var(--sh-user);
+        font-weight: 600;
+    }
 
         .session-tools-table .mono {
             font-family: var(--sh-font-mono);
