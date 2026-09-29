@@ -1,0 +1,281 @@
+# Security testing: SAST (Semgrep, .NET security analyzers, vulnerable NuGet packages) and
+# DAST (an OWASP ZAP baseline scan of the running ScanHarness UI).
+#
+# Gating: only high-severity findings fail a job. Everything else is reported in the job summary and
+# in downloadable reports (the "*-report" artifacts). Set the repository variable
+# CODE_SECURITY_ENABLED=true once GitHub Code Security is enabled to also send the SARIF results to
+# the repo's Security tab (see also codeql.yml).
+name: Security
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC, to catch newly published vulnerabilities and rules.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  SOLUTION: ScanHarness/ScanHarness.slnx
+
+jobs:
+  semgrep:
+    name: SAST · Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: semgrep/semgrep:1.178.0
+    permissions:
+      contents: read
+      security-events: write # only used when CODE_SECURITY_ENABLED is true
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Scan
+        run: |
+          # The checkout is owned by another user inside the container; let git (used to list files) read it.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          semgrep scan --metrics=off \
+            --config p/csharp --config p/owasp-top-ten --config p/secrets \
+            --sarif-output=semgrep.sarif --json-output=semgrep.json
+
+      - name: Summarise and check for high-severity findings
+        id: gate
+        shell: python3 {0}
+        run: |
+          import json, os
+
+          results = json.load(open("semgrep.json"))["results"]
+          high_levels = {"ERROR", "HIGH", "CRITICAL"}
+          high = [r for r in results if r["extra"].get("severity", "").upper() in high_levels]
+
+          counts = {}
+          for r in results:
+              level = r["extra"].get("severity", "UNKNOWN").upper()
+              counts[level] = counts.get(level, 0) + 1
+
+          lines = ["## Semgrep (SAST)", ""]
+          lines.append(f"{len(results)} finding(s); {len(high)} high severity (fails the job).")
+          if counts:
+              lines += ["", "| Severity | Findings |", "|---|---|"]
+              lines += [f"| {level} | {n} |" for level, n in sorted(counts.items())]
+          if results:
+              lines += ["", "| Severity | Rule | Location |", "|---|---|---|"]
+              for r in sorted(results, key=lambda r: (r["extra"].get("severity", "") not in high_levels, r["path"])):
+                  rule = r["check_id"].split(".")[-1]
+                  lines.append(f"| {r['extra'].get('severity', '')} | `{rule}` | `{r['path']}:{r['start']['line']}` |")
+          lines += ["", "Full results: the `semgrep-report` artifact."]
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"high={len(high)}\n")
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: semgrep-report
+          path: |
+            semgrep.sarif
+            semgrep.json
+
+      - name: Send results to the Security tab
+        if: ${{ !cancelled() && vars.CODE_SECURITY_ENABLED == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Fail on high-severity findings
+        if: ${{ steps.gate.outputs.high != '0' }}
+        run: |
+          echo "::error::Semgrep found ${{ steps.gate.outputs.high }} high-severity finding(s); see the job summary."
+          exit 1
+
+  dotnet:
+    name: SAST · .NET analyzers and packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # only used when CODE_SECURITY_ENABLED is true
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Directory.Build.props turns on every .NET security rule and writes a SARIF report per project.
+      - name: Build with security analyzers
+        run: dotnet build "$SOLUTION" -c Release -p:SastSarifDir="$PWD/sast"
+
+      - name: Check for vulnerable packages
+        run: dotnet list "$SOLUTION" package --vulnerable --include-transitive --format json > vulnerable-packages.json
+
+      - name: Summarise and check for high-severity findings
+        id: gate
+        run: |
+          # Analyzer rules have no severity, so security findings are reported but don't fail the job.
+          analyzer=$(jq -r '
+            .runs[]
+            | (.tool.driver.rules // [] | map(select(.properties.category == "Security") | .id)) as $security
+            | .results[]?
+            | select(.ruleId as $id | $security | index($id))
+            | .locations[0].physicalLocation as $loc
+            | "| `\(.ruleId)` | `\($loc.artifactLocation.uri | sub("^file://\(env.GITHUB_WORKSPACE)/"; ""))\(if $loc.region.startLine then ":\($loc.region.startLine)" else "" end)` | \(.message.text | gsub("\\|"; "\\|")) |"
+          ' sast/*.sarif | sort -u)
+          analyzer_count=$(printf '%s' "$analyzer" | grep -c . || true)
+
+          # A package with a High or Critical advisory fails the job.
+          packages=$(jq -r '
+            .projects[] | .path as $project | .frameworks[]?
+            | (.topLevelPackages[]?, .transitivePackages[]?) as $package
+            | $package.vulnerabilities[]?
+            | "| \(.severity) | `\($package.id)` \($package.resolvedVersion) | \($project | split("/") | last) | \(.advisoryurl) |"
+          ' vulnerable-packages.json | sort -u)
+          package_count=$(printf '%s' "$packages" | grep -c . || true)
+          high=$(printf '%s' "$packages" | grep -cE '^\| (High|Critical) ' || true)
+
+          {
+            echo "## .NET security analyzers (SAST)"
+            echo
+            echo "$analyzer_count security finding(s) (reported, not gating)."
+            if [ "$analyzer_count" -gt 0 ]; then
+              echo
+              echo "| Rule | Location | Message |"
+              echo "|---|---|---|"
+              echo "$analyzer"
+            fi
+            echo
+            echo "## Vulnerable NuGet packages"
+            echo
+            echo "$package_count advisory(ies); $high High or Critical (fails the job)."
+            if [ "$package_count" -gt 0 ]; then
+              echo
+              echo "| Severity | Package | Project | Advisory |"
+              echo "|---|---|---|---|"
+              echo "$packages"
+            fi
+            echo
+            echo "Full results: the \`dotnet-sast-report\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "high=$high" >> "$GITHUB_OUTPUT"
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dotnet-sast-report
+          path: |
+            sast/
+            vulnerable-packages.json
+
+      - name: Send results to the Security tab
+        if: ${{ !cancelled() && vars.CODE_SECURITY_ENABLED == 'true' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sast
+          category: dotnet-analyzers
+
+      - name: Fail on high-severity findings
+        if: ${{ steps.gate.outputs.high != '0' }}
+        run: |
+          echo "::error::${{ steps.gate.outputs.high }} package(s) with a High or Critical advisory; see the job summary."
+          exit 1
+
+  zap:
+    name: DAST · ZAP baseline (ScanHarness UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET: http://localhost:5080
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish ScanHarness
+        run: dotnet publish ScanHarness/ScanHarness.csproj -c Release -o app
+
+      # Runs as it would in production, with only the keyword brain and a throwaway database.
+      - name: Start ScanHarness
+        working-directory: app
+        env:
+          ASPNETCORE_URLS: ${{ env.TARGET }}
+          Llm__Enabled: "false"
+          Persistence__DatabasePath: ${{ runner.temp }}/dast/scanharness.db
+        run: |
+          nohup dotnet ScanHarness.dll > "$RUNNER_TEMP/scanharness.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fs -o /dev/null "$TARGET/" && exit 0
+            sleep 1
+          done
+          echo "::error::ScanHarness didn't start"; cat "$RUNNER_TEMP/scanharness.log"; exit 1
+
+      # Passive scan: ZAP spiders the site and inspects the responses; it doesn't send attacks.
+      # .zap/rules.tsv can IGNORE a rule or make it FAIL the job.
+      - name: ZAP baseline scan
+        id: scan
+        run: |
+          mkdir -p zap && cp .zap/rules.tsv zap/ && chmod -R a+rwx zap
+          status=0
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:2.17.0 \
+            zap-baseline.py -t "$TARGET" -c rules.tsv -m 3 -I \
+            -J zap-report.json -r zap-report.html -w zap-report.md || status=$?
+          # With -I, exit 1 means a rule set to FAIL in rules.tsv was raised; 3 means the scan itself failed.
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          [ -f zap/zap-report.json ] || { echo "::error::ZAP produced no report (exit $status)"; exit 1; }
+
+      - name: Summarise and check for high-risk alerts
+        id: gate
+        run: |
+          high=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' zap/zap-report.json)
+          {
+            echo "## ZAP baseline (DAST)"
+            echo
+            jq -r '
+              [.site[].alerts[]] as $alerts
+              | "\($alerts | length) alert type(s): " +
+                ([["3","High"],["2","Medium"],["1","Low"],["0","Informational"]]
+                 | map(. as [$code, $name] | "\([$alerts[] | select(.riskcode == $code)] | length) \($name)")
+                 | join(", "))
+            ' zap/zap-report.json
+            echo
+            echo "High-risk alerts fail the job. Full report: the \`zap-report\` artifact (zap-report.html)."
+            echo
+            echo "| Risk | Alert | Instances |"
+            echo "|---|---|---|"
+            jq -r '.site[].alerts | sort_by(.riskcode) | reverse | .[] | "| \(.riskdesc | split(" ")[0]) | \(.alert) | \(.count) |"' zap/zap-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "high=$high" >> "$GITHUB_OUTPUT"
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: zap-report
+          path: |
+            zap/
+            ${{ runner.temp }}/scanharness.log
+          if-no-files-found: ignore
+
+      - name: Fail on high-risk alerts
+        if: ${{ steps.gate.outputs.high != '0' || steps.scan.outputs.status == '1' }}
+        run: |
+          echo "::error::ZAP raised ${{ steps.gate.outputs.high }} high-risk alert type(s) (scan exit ${{ steps.scan.outputs.status }}); see the job summary."
+          exit 1

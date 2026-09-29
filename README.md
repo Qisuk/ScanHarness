@@ -293,3 +293,33 @@ JSON file as you find prompts that trip models up.
 dotnet test ScanHarness.Tests          # unit tests; LLM calls use a fake HTTP handler
 dotnet test ScanHarness.UITests        # Playwright; run `pwsh bin/Debug/net10.0/playwright.ps1 install` once
 ```
+
+## CI and security testing
+
+GitHub Actions workflows in `.github/workflows` run on every pull request and push to `master`:
+
+| Workflow | Job | What it does | Fails the run on |
+|---|---|---|---|
+| `ci.yml` | Build and test | Builds `ScanHarness/ScanHarness.slnx` and runs the unit and Playwright UI tests | A build error or failing test |
+| `security.yml` | SAST · Semgrep | Semgrep's C#, OWASP Top 10 and secrets rulesets | An ERROR (high) severity finding |
+| | SAST · .NET analyzers and packages | Builds with every .NET security analyzer rule on, and checks NuGet packages (including transitive) for known vulnerabilities | A package with a High or Critical advisory |
+| | DAST · ZAP baseline | Publishes and starts the ScanHarness UI (keyword brain, throwaway database) and runs an OWASP ZAP baseline (passive) scan against it | A High-risk alert, or a rule set to `FAIL` in `.zap/rules.tsv` |
+| `codeql.yml` | SAST · CodeQL | GitHub CodeQL `security-extended` queries for C# | Nothing by itself (see below) |
+
+`security.yml` also runs every Monday at 06:00 UTC, to catch newly published vulnerabilities.
+
+Findings below the fail threshold are listed in each job's **summary** and don't block. The full
+reports are attached to the run as artifacts: `semgrep-report`, `dotnet-sast-report` (SARIF per
+project, plus the package check) and `zap-report` (HTML, JSON and Markdown, plus the app's log).
+.NET analyzer rules have no severity, so their findings are always reported and never gate the run.
+
+**Tuning:** to ignore or escalate a ZAP rule, add it to `.zap/rules.tsv` (`IGNORE`, `WARN` or
+`FAIL`). To suppress a reviewed analyzer finding, use a `#pragma` or `.editorconfig` entry with a
+justification. The security analyzers only run when the build is given `-p:SastSarifDir=...`
+(`Directory.Build.props`), so local builds are unchanged.
+
+**GitHub Code Security:** this repository is private, so the Security tab and CodeQL need GitHub
+Code Security enabled. Once it is, set the repository variable `CODE_SECURITY_ENABLED` to `true`
+(Settings › Secrets and variables › Actions › Variables). CodeQL then runs, and Semgrep and the
+.NET analyzers also send their SARIF results to the Security tab. To block pull requests on
+CodeQL alerts, add a code scanning rule to a branch ruleset for `master`.
