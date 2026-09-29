@@ -590,7 +590,8 @@ public class HarnessUITests : PageTest
 
         var tools = Page.GetByLabel("Tool classifications");
         await Expect(tools.Locator(".controls-class-name")).ToHaveTextAsync(new[] { "simple_scanner", "attack", "weather_forecast" });
-        await Expect(tools.Locator(".sh-class-tag")).ToHaveTextAsync(new[] { "internal", "internal", "external" });
+        // ServerFixture overrides attack to External (its default is Internal).
+        await Expect(tools.Locator(".sh-class-tag")).ToHaveTextAsync(new[] { "internal", "external", "external" });
     }
 
     [Test]

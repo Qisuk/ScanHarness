@@ -40,6 +40,11 @@ public class ServerFixture
         _process.StartInfo.Environment["Llm__Enabled"] = "false";
         // A fresh database per run, so tests start empty and never touch the real activity data.
         _process.StartInfo.Environment["Persistence__DatabasePath"] = DatabasePath;
+        // Pin tool classifications so tests don't depend on appsettings.json. Attack is set to External
+        // (its default is Internal) so the tests also show a config override reaching the UI.
+        _process.StartInfo.Environment["Tools__Classifications__simple_scanner"] = "Internal";
+        _process.StartInfo.Environment["Tools__Classifications__attack"] = "External";
+        _process.StartInfo.Environment["Tools__Classifications__weather_forecast"] = "External";
         _process.Start();
 
         // Drain stdout/stderr (so the app never blocks on a full pipe buffer) and tee to a log file for debugging.
