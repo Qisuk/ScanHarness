@@ -1,0 +1,6 @@
+# ZAP baseline rule configuration for the DAST job in .github/workflows/security.yml.
+# One rule per line, tab-separated: <rule id>	<IGNORE|INFO|WARN|FAIL>	(<rule name>)
+# By default every rule is WARN (reported, not gating); the job fails on any High-risk alert or any FAIL rule.
+# Rule ids and names: https://www.zaproxy.org/docs/alerts/
+# Example (tab-separated):
+# 10038	FAIL	(Content Security Policy (CSP) Header Not Set)

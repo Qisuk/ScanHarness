@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Security static analysis for CI (see .github/workflows/security.yml). Only active when the build is
+    given a SastSarifDir, e.g. dotnet build -p:SastSarifDir=/path/to/sarif, so local and VS builds are
+    unchanged. Turns on every .NET security analyzer rule and writes one SARIF report per project.
+  -->
+  <PropertyGroup Condition="'$(SastSarifDir)' != ''">
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisModeSecurity>All</AnalysisModeSecurity>
+    <ErrorLog>$(SastSarifDir)/$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
+  </PropertyGroup>
+
+  <!-- The compiler won't create the report's folder itself. -->
+  <Target Name="CreateSastSarifDir" BeforeTargets="CoreCompile" Condition="'$(SastSarifDir)' != ''">
+    <MakeDir Directories="$(SastSarifDir)" />
+  </Target>
+</Project>
