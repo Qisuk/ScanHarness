@@ -36,6 +36,18 @@
             <h2 id="stage-@stage" class="sh-box-title">@ControlCatalog.StageName(stage)</h2>
             <span class="sh-box-aside">@controls.Count control@(controls.Count == 1 ? "" : "s")</span>
             <p class="controls-stage-description">@StageDescription(stage)</p>
+            @if (stage == ControlStage.ToolRule)
+            {
+                <div class="controls-classes" aria-label="Tool classifications">
+                    Tools:
+                    @foreach (var tool in ToolCatalog.All)
+                    {
+                        var toolClass = ToolCatalog.ClassificationOf(tool);
+                        <span class="controls-class-name">@tool.FunctionName</span>
+                        <span class="sh-class-tag is-@toolClass.Label()">@toolClass.Label()</span>
+                    }
+                </div>
+            }
 
             @if (controls.Count == 0)
             {
@@ -49,6 +61,10 @@
                     <div class="control-text">
                         <div class="control-name">@control.Name</div>
                         <div class="control-description">@control.Description</div>
+                        <div class="control-scope">
+                            Applies to
+                            <span class="sh-class-tag is-@control.AppliesTo.ToString().ToLowerInvariant()">@ControlCatalog.ScopeLabel(control)</span>
+                        </div>
                     </div>
                     <div class="mode-switch" role="radiogroup" aria-label="@($"{control.Name} mode")">
                         @foreach (var option in Enum.GetValues<ControlMode>())
@@ -70,9 +86,9 @@
 
     private static string StageDescription(ControlStage stage) => stage switch
     {
-        ControlStage.ChatIn => "Applied to your message before it is passed to the brain. Block stops it reaching the brain.",
-        ControlStage.ChatOut => "Applied to the brain's replies and summaries. Block withholds the text (the original is kept in the log).",
-        ControlStage.ToolRule => "Applied to a tool call the brain chose, before the tool is executed. Block stops the tool running.",
+        ControlStage.ChatIn => "Applied to your message before it is passed to the brain. Block stops it reaching the brain. Scoped by the decision brain (internal or external, shown in the brain pickers).",
+        ControlStage.ChatOut => "Applied to the brain's replies and summaries. Block withholds the text (the original is kept in the log). Scoped by the brain that wrote the text.",
+        ControlStage.ToolRule => "Applied to a tool call the brain chose, before the tool is executed. Block stops the tool running. Scoped by the tool's classification.",
         _ => ""
     };
 
@@ -178,6 +194,26 @@
     .control-description {
         color: var(--sh-text-muted);
         font-size: 0.8rem;
+    }
+
+    .control-scope,
+    .controls-classes {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.25rem;
+        color: var(--sh-text-subtle);
+        font-size: 0.75rem;
+    }
+
+    .controls-classes {
+        margin: 0 0 0.5rem;
+    }
+
+    .controls-class-name {
+        font-family: var(--sh-font-mono);
+        color: var(--sh-text-muted);
     }
 
     /* Three-position switch: Off | Advise | Block. */

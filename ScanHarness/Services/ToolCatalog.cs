@@ -29,6 +29,7 @@ namespace ScanHarness.Services
     /// <param name="RequiresApproval">Whether the user must approve the call before it runs.</param>
     /// <param name="Parameters">Parameters the tool accepts.</param>
     /// <param name="Confirmation">Builds the message shown to the user when the tool is chosen.</param>
+    /// <param name="DefaultClassification">Internal or external unless overridden in config (see <see cref="ToolCatalog.ClassificationOf"/>).</param>
     public sealed record ToolDefinition(
         string FunctionName,
         string Tool,
@@ -36,7 +37,8 @@ namespace ScanHarness.Services
         string Description,
         bool RequiresApproval,
         IReadOnlyList<ToolParameter> Parameters,
-        Func<IReadOnlyDictionary<string, string>, string> Confirmation)
+        Func<IReadOnlyDictionary<string, string>, string> Confirmation,
+        Classification DefaultClassification = Classification.Internal)
     {
         /// <summary>Formats the confirmation message for the chosen parameters.</summary>
         public string FormatConfirmation(IReadOnlyDictionary<string, string> parameters) => Confirmation(parameters);
@@ -84,8 +86,24 @@ namespace ScanHarness.Services
                 },
                 Confirmation: p => p.TryGetValue("location", out var location)
                     ? $"I'll get the weather forecast for {location}."
-                    : "I'll get the weather forecast."),
+                    : "I'll get the weather forecast.",
+                // A real forecast would come from a third-party weather service.
+                DefaultClassification: Classification.External),
         };
+
+        private static IReadOnlyDictionary<string, Classification> _classificationOverrides = new Dictionary<string, Classification>();
+
+        /// <summary>Overrides tool classifications by function name (config section "Tools:Classifications").</summary>
+        public static void UseClassifications(IReadOnlyDictionary<string, Classification> overrides) =>
+            _classificationOverrides = new Dictionary<string, Classification>(overrides, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Whether a tool is internal or external: its config override, else its default.</summary>
+        public static Classification ClassificationOf(ToolDefinition tool) =>
+            _classificationOverrides.TryGetValue(tool.FunctionName, out var classification) ? classification : tool.DefaultClassification;
+
+        /// <summary>Classification of a tool by its identifier (e.g. "scanner"), or null for an unknown tool.</summary>
+        public static Classification? ClassificationOf(string? tool) =>
+            FindByTool(tool) is ToolDefinition definition ? ClassificationOf(definition) : null;
 
         /// <summary>Finds a tool by the function name the LLM used (case-insensitive), or null.</summary>
         public static ToolDefinition? FindByFunctionName(string? functionName) =>

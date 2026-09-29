@@ -581,6 +581,52 @@ public class HarnessUITests : PageTest
     }
 
     [Test]
+    public async Task Controls_page_shows_what_each_control_applies_to_and_how_tools_are_classified()
+    {
+        await Page.GotoAsync(ControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+
+        await Expect(ControlRow("chat-in-contains-badinstruction").Locator(".control-scope")).ToHaveTextAsync("Applies to all brains");
+        await Expect(ControlRow("chat-out-contains-script-tag").Locator(".control-scope")).ToHaveTextAsync("Applies to all brains");
+
+        var tools = Page.GetByLabel("Tool classifications");
+        await Expect(tools.Locator(".controls-class-name")).ToHaveTextAsync(new[] { "simple_scanner", "attack", "weather_forecast" });
+        await Expect(tools.Locator(".sh-class-tag")).ToHaveTextAsync(new[] { "internal", "internal", "external" });
+    }
+
+    [Test]
+    public async Task Brain_picker_shows_the_keyword_brain_as_internal()
+    {
+        await GotoHarnessAsync();
+
+        await Expect(Page.Locator("#brain-select option[value='keyword']")).ToHaveTextAsync("Keyword brain (rule-based) · internal");
+    }
+
+    [Test]
+    public async Task Tool_chip_shows_whether_the_tool_is_internal_or_external()
+    {
+        await GotoHarnessAsync();
+
+        await SendAndWaitAsync("scan example.com");
+        await SendAndWaitAsync("what's the weather in London?");
+
+        await Expect(AgentBubbles.Nth(0).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync("internal");
+        await Expect(AgentBubbles.Nth(1).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync("external");
+    }
+
+    [Test]
+    public async Task Pip_names_the_classification_of_the_brain_the_message_was_for()
+    {
+        await GotoHarnessAsync();
+        await PromptInput.FillAsync("scan example.com BadInstruction");
+        await SendButton.ClickAsync();
+
+        var question = UserBubbles.First;
+        await question.Locator(".control-pip").ClickAsync(new() { Timeout = 15000 });
+        await Expect(question.Locator(".control-pip-popover")).ToContainTextAsync("On the request to an internal brain:");
+        await Expect(Page.Locator(".feed-item", new() { HasText = "(request to an internal brain)" })).ToBeVisibleAsync();
+    }
+
+    [Test]
     public async Task Chat_in_advise_flags_the_message_but_still_sends_it()
     {
         await SetControlModeAsync("blob", "chat-in-contains-badinstruction", "Advise");

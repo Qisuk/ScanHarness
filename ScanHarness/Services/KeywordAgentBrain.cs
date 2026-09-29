@@ -12,6 +12,9 @@ namespace ScanHarness.Services
     {
         public string Name => "Keyword brain (rule-based)";
 
+        /// <summary>Runs inside the harness, so always internal.</summary>
+        public Classification Classification => Classification.Internal;
+
         private static readonly string[] AttackKeywords =
             { "attack", "exploit", "hack", "breach", "penetrat", "pwn" };
 

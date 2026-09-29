@@ -12,9 +12,34 @@ namespace ScanHarness.Services.Controls
     /// <param name="Detail">What matched, e.g. Found "&lt;script&gt;" at character 17.</param>
     /// <param name="Text">The text that was checked (truncated), so reports can show the message that tripped the
     /// control. Null for hits recorded before this was stored.</param>
-    public sealed record ControlViolation(string ControlId, string Name, ControlStage Stage, ControlMode Mode, string Target, string Detail, string? Text = null)
+    /// <param name="Subject">Classification of the brain or tool the check was for (see <see cref="ControlDefinition.AppliesTo"/>);
+    /// null when unknown, including hits recorded before this was stored.</param>
+    public sealed record ControlViolation(string ControlId, string Name, ControlStage Stage, ControlMode Mode, string Target, string Detail,
+        string? Text = null, Classification? Subject = null)
     {
         public string StageName => ControlCatalog.StageName(Stage);
+
+        /// <summary>Describes what was checked, e.g. "request to an external brain" or "tool call to an internal tool".</summary>
+        public string TargetDescription
+        {
+            get
+            {
+                if (Subject is not Classification subject)
+                {
+                    return Target;
+                }
+
+                var noun = Stage == ControlStage.ToolRule ? "tool" : "brain";
+                var preposition = Stage switch
+                {
+                    ControlStage.ChatIn => "to",
+                    ControlStage.ChatOut => "from",
+                    _ => "for"
+                };
+                var article = subject == Classification.Internal ? "an internal" : "an external";
+                return $"{Target} {preposition} {article} {noun}";
+            }
+        }
 
         /// <summary>Longest checked text kept with a violation.</summary>
         public const int MaxTextLength = 500;
@@ -41,14 +66,19 @@ namespace ScanHarness.Services.Controls
     {
         private readonly SessionState _session;
         private readonly IActivityStore? _store;
+        private readonly IReadOnlyList<ControlDefinition>? _controls;
         private readonly Dictionary<string, Dictionary<string, ControlMode>> _settingsByUser = new();
 
         /// <param name="store">Where settings are saved; null keeps them in memory (e.g. in tests).</param>
-        public ControlService(SessionState session, IActivityStore? store = null)
+        /// <param name="controls">Controls to apply; null uses <see cref="ControlCatalog.All"/> (tests pass their own).</param>
+        public ControlService(SessionState session, IActivityStore? store = null, IReadOnlyList<ControlDefinition>? controls = null)
         {
             _session = session;
             _store = store;
+            _controls = controls;
         }
+
+        private IReadOnlyList<ControlDefinition> Controls => _controls ?? ControlCatalog.All;
 
         /// <summary>Raised when a setting changes.</summary>
         public event Action? OnChanged;
@@ -61,7 +91,7 @@ namespace ScanHarness.Services.Controls
         /// <returns>True when the mode changed.</returns>
         public bool SetMode(string controlId, ControlMode mode)
         {
-            var control = ControlCatalog.Find(controlId);
+            var control = Controls.FirstOrDefault(c => c.Id == controlId);
             if (control == null || GetMode(control) == mode)
             {
                 return false;
@@ -75,7 +105,11 @@ namespace ScanHarness.Services.Controls
 
         /// <summary>Checks <paramref name="text"/> against every enabled control at <paramref name="stage"/>.</summary>
         /// <param name="target">What the text is, for the log and pips (e.g. "request").</param>
-        public ControlCheck Check(ControlStage stage, string target, string? text)
+        /// <param name="subject">
+        /// Classification of the brain the text is sent to (Chat In), the brain that wrote it (Chat Out) or the
+        /// tool about to run (ToolRule). Controls scoped to the other classification are skipped; null checks every control.
+        /// </param>
+        public ControlCheck Check(ControlStage stage, string target, string? text, Classification? subject = null)
         {
             if (string.IsNullOrEmpty(text))
             {
@@ -83,10 +117,10 @@ namespace ScanHarness.Services.Controls
             }
 
             var violations = new List<ControlViolation>();
-            foreach (var control in ControlCatalog.ForStage(stage))
+            foreach (var control in Controls.Where(c => c.Stage == stage))
             {
                 var mode = GetMode(control);
-                if (mode == ControlMode.Off)
+                if (mode == ControlMode.Off || !control.AppliesToSubject(subject))
                 {
                     continue;
                 }
@@ -95,7 +129,7 @@ namespace ScanHarness.Services.Controls
                 if (detail != null)
                 {
                     var checkedText = text.Length <= ControlViolation.MaxTextLength ? text : text[..ControlViolation.MaxTextLength] + "…";
-                    violations.Add(new ControlViolation(control.Id, control.Name, stage, mode, target, detail, checkedText));
+                    violations.Add(new ControlViolation(control.Id, control.Name, stage, mode, target, detail, checkedText, subject));
                 }
             }
 

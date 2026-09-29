@@ -92,6 +92,12 @@ is applied at its stage:
   until a user changes it.
 - **rule.type**: `contains` (plain text) or `regex` (a .NET regular expression).
   **rule.caseSensitive** defaults to `false`.
+- **appliesTo**: `Any` (the default), `Internal` or `External`. It limits the control to
+  [internal or external](#internal-and-external) subjects: for Chat In, the brain the message is
+  sent to; for Chat Out, the brain that wrote the text (the decision brain for replies, the summary
+  brain for summaries); for ToolRule, the tool about to run. For example, a Chat In control with
+  `"appliesTo": "External"` checks only messages going to an external model. When a subject's
+  classification isn't known, the control is applied anyway (it fails closed).
 - **id** keys each user's saved setting, so keep it stable when editing a control.
 - A regex that takes too long on a message (over 250 ms) counts as a match, so a slow
   pattern can't let text through unchecked.
@@ -100,7 +106,29 @@ is applied at its stage:
 
 The shipped controls are Chat In *Contains "BadInstruction"* (exact text), Chat In
 *Contains "ignore previous"* (a regex, any case or spacing) and Chat Out *Contains "&lt;script&gt;"*
-(any case), all defaulting to Block. There are no ToolRule controls yet.
+(any case), all defaulting to Block and applying to any brain. There are no ToolRule controls yet.
+
+The Controls page shows what each control applies to (e.g. "Applies to external brains"), and lists
+each tool's classification in the ToolRule box. Pips and log entries name the classification
+of the subject, e.g. "On the request to an external brain".
+
+### Internal and external
+
+Every brain and tool is classified **internal** (runs on infrastructure you control) or
+**external** (a third-party service), and controls can be scoped by it (see `appliesTo` above).
+
+- **Brains**: the keyword brain is internal. LLM brains are internal when `Llm:BaseUrl` is a
+  loopback address (e.g. a local Ollama) and external otherwise. `Llm:Classification` sets
+  all models from the endpoint, and `Llm:ModelClassifications` sets individual models by model id.
+  The brain menus show each brain's classification, e.g. "qwen2.5:3b · internal".
+- **Tools**: `simple_scanner` and `attack` are internal, and `weather_forecast` is external by
+  default. Override them in `Tools:Classifications`, keyed by tool function name. The tool chip on
+  each reply shows the classification.
+
+```json
+"Llm":   { "Classification": "External", "ModelClassifications": { "llama3.2:1b": "Internal" } },
+"Tools": { "Classifications": { "weather_forecast": "Internal" } }
+```
 
 ## Agent brains
 
@@ -241,6 +269,8 @@ before `docker compose up` and point `Llm:BaseUrl` at that port.
 | `Temperature` | `0` | Keeps decisions repeatable. |
 | `TimeoutSeconds` | `180` | Per decision; the first call to a model includes loading it. |
 | `ExcludeModelPatterns` | `["embed"]` | Hides models whose id contains these (e.g. embedding models). |
+| `Classification` | empty | `Internal` or `External` for this endpoint's models; empty decides from `BaseUrl` (loopback is internal). |
+| `ModelClassifications` | `{}` | Per-model overrides of `Classification`, keyed by model id. |
 
 Any setting can be overridden with environment variables, e.g. `Llm__BaseUrl=http://localhost:1234/v1`.
 

@@ -99,6 +99,10 @@
                     {
                         <div class="chat-tool">
                             <span class="chat-tool-name">@call.Tool/@call.Action</span>
+                            @if (ToolCatalog.ClassificationOf(call.Tool) is Classification toolClass)
+                            {
+                                <span class="sh-class-tag is-@toolClass.Label()" title="@($"{toolClass.Label()} tool")">@toolClass.Label()</span>
+                            }
                             <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
                             <span class="chat-tool-hint">@(selected ? "Output shown below" : "Select to show output")</span>
                         </div>

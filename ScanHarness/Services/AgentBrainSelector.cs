@@ -7,7 +7,8 @@ namespace ScanHarness.Services
     /// <param name="Id">Stable identifier: <see cref="AgentBrainSelector.KeywordBrainId"/> or the model id.</param>
     /// <param name="DisplayName">Label shown in the picker.</param>
     /// <param name="IsLlm">True for brains backed by the LLM endpoint.</param>
-    public sealed record BrainOption(string Id, string DisplayName, bool IsLlm);
+    /// <param name="Classification">Internal or external; null for the "Same as decision" summary choice.</param>
+    public sealed record BrainOption(string Id, string DisplayName, bool IsLlm, Classification? Classification = null);
 
     /// <summary>
     /// Holds the per-user choice of agent brains: one that decides which tool to call and one that
@@ -76,7 +77,8 @@ namespace ScanHarness.Services
         /// <summary>True when at least one LLM brain is available.</summary>
         public bool HasLlmBrains => _choices.Any(o => o.IsLlm);
 
-        private BrainOption KeywordOption => new(KeywordBrainId, _keywordBrain.Name, IsLlm: false);
+        private BrainOption KeywordOption =>
+            new(KeywordBrainId, $"{_keywordBrain.Name} · {_keywordBrain.Classification.Label()}", IsLlm: false, _keywordBrain.Classification);
 
         /// <summary>
         /// Lists the endpoint's models and selects the configured default. Safe to call more than once;
@@ -107,7 +109,11 @@ namespace ScanHarness.Services
                     .ToList();
 
                 _choices = new List<BrainOption> { KeywordOption };
-                _choices.AddRange(usable.Select(m => new BrainOption(m, m, IsLlm: true)));
+                _choices.AddRange(usable.Select(m =>
+                {
+                    var classification = _options.ClassificationFor(m);
+                    return new BrainOption(m, $"{m} · {classification.Label()}", IsLlm: true, classification);
+                }));
 
                 LlmStatus = usable.Count == 0 ? $"No models found at {_llmClient.BaseAddress}." : null;
             }
@@ -167,7 +173,8 @@ namespace ScanHarness.Services
         {
             if (!_brains.TryGetValue(id, out var brain))
             {
-                brain = new OpenAiCompatibleAgentBrain(_llmClient, id, _options.DecisionMode, _options.Temperature);
+                brain = new OpenAiCompatibleAgentBrain(_llmClient, id, _options.DecisionMode, _options.Temperature,
+                    classification: _options.ClassificationFor(id));
                 _brains[id] = brain;
             }
 

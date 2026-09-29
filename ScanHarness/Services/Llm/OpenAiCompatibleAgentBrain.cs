@@ -36,18 +36,24 @@ namespace ScanHarness.Services.Llm
         /// When true, a model the server says can't use tools is switched to <see cref="LlmDecisionMode.JsonSchema"/>
         /// and the request retried. The eval turns this off so each mode is measured as configured.
         /// </param>
+        /// <param name="classification">
+        /// Internal or external (see <see cref="LlmOptions.ClassificationFor"/>). Defaults to external, so
+        /// controls scoped to external brains still apply when nothing better is known.
+        /// </param>
         public OpenAiCompatibleAgentBrain(
             OpenAiCompatibleClient client,
             string model,
             LlmDecisionMode mode = LlmDecisionMode.Tools,
             double temperature = 0,
-            bool allowModeFallback = true)
+            bool allowModeFallback = true,
+            Classification classification = Classification.External)
         {
             _client = client;
             Model = model;
             Mode = mode;
             _temperature = temperature;
             _allowModeFallback = allowModeFallback;
+            Classification = classification;
         }
 
         /// <summary>The model id sent to the endpoint.</summary>
@@ -57,6 +63,8 @@ namespace ScanHarness.Services.Llm
         public LlmDecisionMode Mode { get; private set; }
 
         public string Name => $"{Model} (LLM)";
+
+        public Classification Classification { get; }
 
         public async Task<ToolDecision> DecideAsync(string prompt)
         {
@@ -205,7 +213,7 @@ namespace ScanHarness.Services.Llm
                     ["status"] = row.Turn.ToolCall?.Status.ToString(),
                     ["outcome"] = ActivitySummaryBuilder.Outcome(row),
                     ["controls"] = new JsonArray(row.Controls
-                        .Select(v => (JsonNode?)$"{(v.Mode == Controls.ControlMode.Block ? "Block" : "Warning")}: {v.StageName} '{v.Name}' on the {v.Target}")
+                        .Select(v => (JsonNode?)$"{(v.Mode == Controls.ControlMode.Block ? "Block" : "Warning")}: {v.StageName} '{v.Name}' on the {v.TargetDescription}")
                         .ToArray()),
                 });
             }

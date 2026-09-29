@@ -57,6 +57,15 @@ var controls = ScanHarness.Services.Controls.ControlCatalog.Load(controlsPath);
 ScanHarness.Services.Controls.ControlCatalog.Use(controls);
 app.Logger.LogInformation("Loaded {Count} control(s) from {Path}.", controls.Count, controlsPath);
 
+// Tools are internal or external (used to scope ToolRule controls); config can override each tool's default.
+var toolClassifications = app.Configuration.GetSection("Tools:Classifications").Get<Dictionary<string, Classification>>() ?? new();
+foreach (var unknown in toolClassifications.Keys.Where(name => ToolCatalog.FindByFunctionName(name) == null))
+{
+    app.Logger.LogWarning("Tools:Classifications names an unknown tool '{Tool}'; expected one of {Tools}.",
+        unknown, string.Join(", ", ToolCatalog.All.Select(t => t.FunctionName)));
+}
+ToolCatalog.UseClassifications(toolClassifications);
+
 // Create the database if needed and close out calls a previous run left unfinished.
 var interrupted = app.Services.GetRequiredService<IActivityStore>().Initialize();
 if (interrupted > 0)

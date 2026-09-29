@@ -324,3 +324,29 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* Internal / external classification tag for brains, tools and control scopes. */
+.sh-class-tag {
+    display: inline-block;
+    padding: 0 0.4rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    line-height: 1.15rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.sh-class-tag.is-internal {
+    color: var(--sh-info);
+    background: var(--sh-info-soft);
+}
+
+.sh-class-tag.is-external {
+    color: var(--sh-warning);
+    background: var(--sh-warning-soft);
+}
+
+.sh-class-tag.is-any {
+    color: var(--sh-text-muted);
+    background: var(--sh-surface-muted);
+}

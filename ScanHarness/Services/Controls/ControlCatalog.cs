@@ -42,6 +42,20 @@ namespace ScanHarness.Services.Controls
         Regex
     }
 
+    /// <summary>Which brains or tools a control is applied to, by their classification.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum ControlScope
+    {
+        /// <summary>Internal and external alike.</summary>
+        Any,
+
+        /// <summary>Only internal brains or tools.</summary>
+        Internal,
+
+        /// <summary>Only external brains or tools.</summary>
+        External
+    }
+
     /// <summary>What a control looks for.</summary>
     public sealed class ControlRule
     {
@@ -116,16 +130,32 @@ namespace ScanHarness.Services.Controls
     /// <param name="Description">What the control checks, shown on the Controls page.</param>
     /// <param name="DefaultMode">Mode used until a user changes it.</param>
     /// <param name="Rule">What the control looks for.</param>
+    /// <param name="AppliesTo">
+    /// Which subjects the control checks: for Chat In, the brain the message is sent to; for Chat Out,
+    /// the brain that produced the output; for ToolRule, the tool about to run.
+    /// </param>
     public sealed record ControlDefinition(
         string Id,
         ControlStage Stage,
         string Name,
         string Description,
         ControlMode DefaultMode,
-        ControlRule Rule)
+        ControlRule Rule,
+        ControlScope AppliesTo = ControlScope.Any)
     {
         /// <summary>Describes what matched, or null if the text passes.</summary>
         public string? Match(string text) => Rule.Match(text);
+
+        /// <summary>
+        /// Whether the control applies to a subject with this classification. An unknown classification
+        /// (null) is always checked, so a scoped guardrail fails closed rather than being skipped.
+        /// </summary>
+        public bool AppliesToSubject(Classification? subject) => AppliesTo switch
+        {
+            ControlScope.Internal => subject != Classification.External,
+            ControlScope.External => subject != Classification.Internal,
+            _ => true
+        };
     }
 
     /// <summary>
@@ -162,6 +192,18 @@ namespace ScanHarness.Services.Controls
             _ => stage.ToString()
         };
 
+        /// <summary>What a control's scope covers at its stage, e.g. "external brains" or "all tools".</summary>
+        public static string ScopeLabel(ControlDefinition control)
+        {
+            var subject = control.Stage == ControlStage.ToolRule ? "tools" : "brains";
+            return control.AppliesTo switch
+            {
+                ControlScope.Internal => $"internal {subject}",
+                ControlScope.External => $"external {subject}",
+                _ => $"all {subject}"
+            };
+        }
+
         /// <summary>Reads control definitions from a JSON file.</summary>
         /// <exception cref="ControlCatalogException">The file is missing or invalid; the message says what to fix.</exception>
         public static IReadOnlyList<ControlDefinition> Load(string path)
@@ -178,7 +220,7 @@ namespace ScanHarness.Services.Controls
         /// Parses control definitions:
         /// <code>
         /// { "controls": [ { "id": "...", "stage": "ChatIn|ChatOut|ToolRule", "name": "...", "description": "...",
-        ///                   "defaultMode": "Off|Advise|Block",
+        ///                   "defaultMode": "Off|Advise|Block", "appliesTo": "Any|Internal|External" (optional, default Any),
         ///                   "rule": { "type": "contains|regex", "value": "...", "caseSensitive": false } } ] }
         /// </code>
         /// Every problem found is reported together, so a broken file can be fixed in one go.
@@ -211,6 +253,9 @@ namespace ScanHarness.Services.Controls
                 if (string.IsNullOrWhiteSpace(entry.Name)) errors.Add($"{label}: \"name\" is required.");
                 if (entry.Stage == null) errors.Add($"{label}: \"stage\" must be one of {string.Join(", ", Enum.GetNames<ControlStage>())}.");
                 if (entry.DefaultMode == null) errors.Add($"{label}: \"defaultMode\" must be one of {string.Join(", ", Enum.GetNames<ControlMode>())}.");
+                var scope = ControlScope.Any;
+                if (entry.AppliesTo != null && (!Enum.TryParse(entry.AppliesTo, ignoreCase: true, out scope) || !Enum.IsDefined(scope)))
+                    errors.Add($"{label}: \"appliesTo\" must be one of {string.Join(", ", Enum.GetNames<ControlScope>())}.");
                 if (entry.Rule?.Type == null) errors.Add($"{label}: \"rule.type\" must be \"contains\" or \"regex\".");
 
                 ControlRule? rule = null;
@@ -228,7 +273,7 @@ namespace ScanHarness.Services.Controls
 
                 if (errors.Count == before)
                 {
-                    controls.Add(new ControlDefinition(entry.Id!, entry.Stage!.Value, entry.Name!, entry.Description ?? "", entry.DefaultMode!.Value, rule!));
+                    controls.Add(new ControlDefinition(entry.Id!, entry.Stage!.Value, entry.Name!, entry.Description ?? "", entry.DefaultMode!.Value, rule!, scope));
                 }
             }
 
@@ -261,6 +306,9 @@ namespace ScanHarness.Services.Controls
             public string? Name { get; set; }
             public string? Description { get; set; }
             public ControlMode? DefaultMode { get; set; }
+
+            // A string, so a missing value defaults to Any while a bad one is reported rather than failing the whole file.
+            public string? AppliesTo { get; set; }
             public RuleEntry? Rule { get; set; }
         }
 

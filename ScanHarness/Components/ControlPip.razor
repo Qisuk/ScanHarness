@@ -22,7 +22,7 @@
                             @(violation.Mode == ControlMode.Block ? "Block" : "Advise")
                         </span>
                         <span class="control-pip-name">@violation.StageName · @violation.Name</span>
-                        <span class="control-pip-detail">On the @violation.Target: @violation.Detail</span>
+                        <span class="control-pip-detail">On the @violation.TargetDescription: @violation.Detail</span>
                     </span>
                 }
             </span>
