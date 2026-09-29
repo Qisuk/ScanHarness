@@ -48,5 +48,32 @@ namespace ScanHarness.Services.Llm
 
         /// <summary>Case-insensitive substrings of model ids to hide (e.g. embedding models).</summary>
         public List<string> ExcludeModelPatterns { get; set; } = new();
+
+        /// <summary>
+        /// Whether this endpoint's models are Internal or External. Empty decides from <see cref="BaseUrl"/>:
+        /// a loopback host (e.g. a local Ollama) is internal, anything else external.
+        /// </summary>
+        public Classification? Classification { get; set; }
+
+        /// <summary>Per-model overrides of <see cref="Classification"/>, by model id.</summary>
+        public Dictionary<string, Classification> ModelClassifications { get; set; } = new();
+
+        /// <summary>The classification of <paramref name="model"/>: its override, else the endpoint's.</summary>
+        public Classification ClassificationFor(string model)
+        {
+            if (ModelClassifications.TryGetValue(model, out var own))
+            {
+                return own;
+            }
+
+            if (Classification is Services.Classification configured)
+            {
+                return configured;
+            }
+
+            return Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri)
+                ? ClassificationExtensions.ForEndpoint(uri)
+                : Services.Classification.External;
+        }
     }
 }

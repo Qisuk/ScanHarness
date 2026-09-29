@@ -93,7 +93,7 @@
                                 <td><span class="badge sh-pill @(isBlock ? "sh-pill-danger" : "sh-pill-warning")">@(isBlock ? "Block" : "Warning")</span></td>
                                 <td>
                                     <div class="session-control-name">@trip.Violation.Name</div>
-                                    <div class="session-control-stage">@trip.Violation.StageName · @trip.Violation.Target</div>
+                                    <div class="session-control-stage">@trip.Violation.StageName · @trip.Violation.TargetDescription</div>
                                 </td>
                                 <td>
                                     <div class="session-control-message" title="@trip.Message">@trip.Message</div>

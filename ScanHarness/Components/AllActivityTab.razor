@@ -261,7 +261,7 @@ else
             isSummarizing = false;
         }
 
-        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.ActivitySummary, summary.Text);
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.ActivitySummary, summary.Text, brain.Classification);
         var shown = check.IsBlocked ? "Activity summary withheld: blocked by a Chat Out control." : summary.Text;
         var overview = ActivitySummaryBuilder.Overview(rows);
         activityReport = new ActivityReport(window, overview, shown, brain.Name, summary.FallbackReason, DateTime.UtcNow, check.Violations);

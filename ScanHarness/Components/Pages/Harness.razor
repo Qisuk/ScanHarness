@@ -489,7 +489,7 @@
             LogService.LogUser($"Request: {userPrompt}", data: new() { ["prompt"] = userPrompt }, brain: brain.Name);
 
             // Chat In controls run before the message reaches the brain; Block stops it here.
-            var chatIn = Controls.Check(ControlStage.ChatIn, ChatTranscript.Targets.Request, userPrompt);
+            var chatIn = Controls.Check(ControlStage.ChatIn, ChatTranscript.Targets.Request, userPrompt, brain.Classification);
             ReportControls(chatIn, brain.Name);
             if (chatIn.IsBlocked)
                 return;
@@ -520,7 +520,7 @@
             };
 
             // Chat Out controls check the brain's reply; Block withholds it (the original stays in the log data).
-            var replyCheck = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Reply, decision.Message);
+            var replyCheck = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Reply, decision.Message, brain.Classification);
 
             if (decision.Error != null)
             {
@@ -543,7 +543,8 @@
             ReportControls(replyCheck, brain.Name);
 
             // ToolRule controls run before the tool is executed; Block means it never runs.
-            var toolCheck = Controls.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, DescribeToolCall(decision));
+            var toolCheck = Controls.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, DescribeToolCall(decision),
+                ToolCatalog.ClassificationOf(decision.Tool));
             ReportControls(toolCheck, brain.Name);
             if (toolCheck.IsBlocked)
                 return;
@@ -589,7 +590,7 @@
 
         // Chat Out controls check the summary. A blocked summary is withheld everywhere it would be shown
         // or reused (the tool output, History, the session summary); the original is kept in the log data.
-        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Summary, summary.Text);
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Summary, summary.Text, brain.Classification);
         var shown = check.IsBlocked ? WithheldSummary : summary.Text;
         ToolCallService.RecordSummary(toolCall, shown, brain.Name);
 
@@ -659,7 +660,7 @@
         }
 
         // Chat Out controls check the session summary; Block withholds it (the original stays in the log data).
-        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.SessionSummary, summary.Text);
+        var check = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.SessionSummary, summary.Text, brain.Classification);
         var shown = check.IsBlocked ? "Session summary withheld: blocked by a Chat Out control." : summary.Text;
 
         var toolList = SessionReportBuilder.ListToolCalls(calls);
@@ -690,7 +691,7 @@
         if (trips.Count > 0)
         {
             var tripText = string.Join("; ", trips.Select(t =>
-                $"{t.Number}. {(t.Violation.Mode == ControlMode.Block ? "Block" : "Warning")} {t.Violation.StageName} '{t.Violation.Name}' on the {t.Violation.Target}"));
+                $"{t.Number}. {(t.Violation.Mode == ControlMode.Block ? "Block" : "Warning")} {t.Violation.StageName} '{t.Violation.Name}' on the {t.Violation.TargetDescription}"));
             LogService.LogInfo($"Controls tripped this session: {tripText}", brain: brain.Name);
         }
 

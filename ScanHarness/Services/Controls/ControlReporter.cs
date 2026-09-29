@@ -21,7 +21,7 @@ namespace ScanHarness.Services.Controls
                         _ => "blocked; it was withheld",
                     };
                 var message = $"{(violation.Mode == ControlMode.Block ? "Block" : "Warning")}: {violation.StageName} control " +
-                              $"'{violation.Name}' {outcome} ({violation.Target}). {violation.Detail}";
+                              $"'{violation.Name}' {outcome} ({violation.TargetDescription}). {violation.Detail}";
                 var data = new Dictionary<string, object>
                 {
                     ["controls"] = ControlService.ToJson(new[] { violation }),

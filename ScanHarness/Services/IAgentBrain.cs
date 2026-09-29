@@ -12,6 +12,12 @@ namespace ScanHarness.Services
         /// <summary>Human-readable name of the brain (shown in the UI/logs).</summary>
         string Name { get; }
 
+        /// <summary>
+        /// Whether the brain is internal or external. Chat In controls are scoped by the brain a message
+        /// is sent to, and Chat Out controls by the brain that produced the output.
+        /// </summary>
+        Classification Classification { get; }
+
         /// <summary>Interpret the user's prompt and decide which tool to call.</summary>
         Task<ToolDecision> DecideAsync(string prompt);
 
