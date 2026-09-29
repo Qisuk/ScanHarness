@@ -426,7 +426,8 @@ namespace ScanHarness.Services.Persistence
         private static void Execute(SqliteConnection connection, string sql)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = sql;
+            // Only ever called with the fixed schema DDL in Initialize, never user input.
+            command.CommandText = sql; // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
             command.ExecuteNonQuery();
         }
 
