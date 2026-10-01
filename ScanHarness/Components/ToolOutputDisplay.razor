@@ -21,6 +21,15 @@
         </div>
     }
 
+    @if (Reasoning is { Count: > 0 })
+    {
+        <div class="sh-box output-reasoning">
+            <span class="sh-box-title">Reasoning</span>
+            <span class="sh-box-aside">@Reasoning.Count @(Reasoning.Count == 1 ? "step" : "steps")</span>
+            <ReasoningSteps Steps="Reasoning" Controls="ReasoningControls" />
+        </div>
+    }
+
     @if (ToolCall.Status == ToolCallStatus.Failed)
     {
         <div class="output-alert">Tool execution failed@(string.IsNullOrEmpty(ToolCall.Error) ? "." : $": {ToolCall.Error}")</div>
@@ -65,6 +74,13 @@
     [Parameter]
     public ToolCall ToolCall { get; set; } = null!;
 
+    /// <summary>The models' reasoning behind this call's request: the decision, any agent, and the summary.</summary>
+    [Parameter]
+    public IReadOnlyList<ReasoningStep>? Reasoning { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<ScanHarness.Services.Controls.ControlViolation> ReasoningControls { get; set; } = Array.Empty<ScanHarness.Services.Controls.ControlViolation>();
+
     // Pretty-print the result when it is valid JSON; otherwise show it as-is.
     private string FormatResult() => JsonFormatter.Pretty(ToolCall.Result);
 }
@@ -107,6 +123,10 @@
         background: var(--sh-success-soft);
         font-size: 0.85rem;
         line-height: 1.45;
+    }
+
+    .output-reasoning {
+        background: var(--sh-info-soft);
     }
 
         /* The title straddles the border: white above it, the box's tint below. */

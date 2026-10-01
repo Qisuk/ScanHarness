@@ -15,6 +15,8 @@ namespace ScanHarness.Services
         private readonly LogService _logService;
         private readonly SessionState? _session;
         private readonly IActivityStore? _store;
+        private readonly Agents.AgentRunner? _agents;
+        private readonly ToolOptions _options;
         private readonly List<ToolCall> _toolCalls = new();
         private readonly Dictionary<string, TaskCompletionSource<bool>> _approvalWaiters = new();
         private readonly object _lockObject = new();
@@ -23,12 +25,17 @@ namespace ScanHarness.Services
 
         /// <param name="session">Current user and session; calls are stamped with them. Optional for tests.</param>
         /// <param name="store">Where calls are saved; null keeps them in memory only.</param>
-        public ToolCallService(HttpClient httpClient, LogService logService, SessionState? session = null, IActivityStore? store = null)
+        /// <param name="agents">Runs agent tool calls; null means agents can't be called (e.g. in some tests).</param>
+        /// <param name="options">Where the tool API is; defaults to the local DemoToolAPI_1.</param>
+        public ToolCallService(HttpClient httpClient, LogService logService, SessionState? session = null, IActivityStore? store = null,
+            Agents.AgentRunner? agents = null, Microsoft.Extensions.Options.IOptions<ToolOptions>? options = null)
         {
             _httpClient = httpClient;
             _logService = logService;
             _session = session;
             _store = store;
+            _agents = agents;
+            _options = options?.Value ?? new ToolOptions();
         }
 
         /// <summary>Replaces the in-memory calls with a stored session's, e.g. when a session is opened.</summary>
@@ -104,7 +111,7 @@ namespace ScanHarness.Services
             try
             {
                 // Call the actual tool API
-                var result = await CallToolApiAsync(tool, action, parameters);
+                var result = await CallToolApiAsync(toolCall);
 
                 toolCall.Result = JsonSerializer.Serialize(result);
                 toolCall.Status = ToolCallStatus.Completed;
@@ -144,36 +151,27 @@ namespace ScanHarness.Services
             }
         }
 
-        private async Task<object> CallToolApiAsync(string tool, string action, Dictionary<string, string> parameters)
+        // Agents run in the harness; everything else is an HTTP call described in tools.json.
+        private async Task<object> CallToolApiAsync(ToolCall toolCall)
         {
-            // Build the API call based on tool and action
-            // For now, this is a placeholder - will call DemoToolAPI_1
+            var definition = ToolCatalog.Find(toolCall.Tool, toolCall.Action)
+                ?? throw new NotImplementedException($"Tool {toolCall.Tool}/{toolCall.Action} is not in the catalog");
 
-            var baseUrl = "https://localhost:7031"; // DemoToolAPI_1 port
-
-            if (tool == "scanner" && action == "simple-scanner")
+            if (definition.IsAgent)
             {
-                var url = parameters.ContainsKey("url") ? parameters["url"] : "";
-                var response = await _httpClient.GetAsync($"{baseUrl}/api/tools/simple-scanner?url={Uri.EscapeDataString(url)}");
-                var content = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<object>(content) ?? new { };
-            }
-            else if (tool == "attack" && action == "execute")
-            {
-                var url = parameters.ContainsKey("url") ? parameters["url"] : "";
-                var response = await _httpClient.PostAsync($"{baseUrl}/api/tools/attack?url={Uri.EscapeDataString(url)}", null);
-                var content = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<object>(content) ?? new { };
-            }
-            else if (tool == "weather" && action == "forecast")
-            {
-                var query = parameters.TryGetValue("location", out var location) ? $"?location={Uri.EscapeDataString(location)}" : "";
-                var response = await _httpClient.GetAsync($"{baseUrl}/WeatherForecast{query}");
-                var content = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<object>(content) ?? new { };
+                if (_agents == null)
+                    throw new InvalidOperationException("Agents aren't available here.");
+                var json = await _agents.RunAsync(definition.Action, GetToolCalls(), toolCall.Id);
+                return JsonSerializer.Deserialize<object>(json) ?? new { };
             }
 
-            throw new NotImplementedException($"Tool {tool}/{action} not implemented");
+            var http = definition.Http ?? throw new NotImplementedException($"Tool {definition.FunctionName} has no HTTP binding");
+            var url = $"{_options.BaseUrl.TrimEnd('/')}/{http.Resolve(toolCall.Parameters)}";
+            using var response = http.Method == "POST"
+                ? await _httpClient.PostAsync(url, null)
+                : await _httpClient.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<object>(content) ?? new { };
         }
 
         public void ApproveToolCall(string toolCallId) => Decide(toolCallId, approved: true);
@@ -251,5 +249,20 @@ namespace ScanHarness.Services
             }
             OnToolCallsChanged?.Invoke();
         }
+    }
+
+    /// <summary>Settings for tools (config section "Tools").</summary>
+    public class ToolOptions
+    {
+        public const string SectionName = "Tools";
+
+        /// <summary>Base URL of the tool API; each tool's http.path in tools.json is relative to it.</summary>
+        public string BaseUrl { get; set; } = "https://localhost:7031";
+
+        /// <summary>Tool definitions file, relative to the content root.</summary>
+        public string DefinitionsPath { get; set; } = ToolCatalog.DefaultFileName;
+
+        /// <summary>Overrides of tool classifications by function name (applied under any Permissions tab edit).</summary>
+        public Dictionary<string, Classification> Classifications { get; set; } = new();
     }
 }

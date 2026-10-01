@@ -92,6 +92,45 @@ namespace ScanHarness.Services.Persistence
                     schema.ExecuteNonQuery();
                 }
 
+                // Engagements (approved scope and rules of engagement) and edits made on the Permissions tab.
+                using (var boundaries = connection.CreateCommand())
+                {
+                    boundaries.CommandText = """
+                        CREATE TABLE IF NOT EXISTS engagements (
+                            id            TEXT PRIMARY KEY,
+                            customer      TEXT NOT NULL,
+                            domains_json  TEXT NOT NULL,
+                            window_start  TEXT,
+                            window_end    TEXT,
+                            rules_json    TEXT NOT NULL,
+                            excluded_json TEXT NOT NULL,
+                            status        TEXT NOT NULL,
+                            proposed_by   TEXT NOT NULL,
+                            proposed_at   TEXT NOT NULL,
+                            decided_by    TEXT,
+                            decided_at    TEXT,
+                            version       INTEGER NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS verified_domains (
+                            domain       TEXT PRIMARY KEY,
+                            verified_by  TEXT NOT NULL,
+                            verified_at  TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS component_policies (
+                            id              TEXT PRIMARY KEY,
+                            classification  TEXT,
+                            clearance       TEXT,
+                            output_label    TEXT,
+                            output_trust    TEXT,
+                            enabled         INTEGER,
+                            brain           TEXT,
+                            changed_by      TEXT NOT NULL,
+                            changed_at      TEXT NOT NULL
+                        );
+                        """;
+                    boundaries.ExecuteNonQuery();
+                }
+
                 // Calls that were still waiting or running when the app stopped can never finish now. Close
                 // them out, and add an entry to each session's timeline so the recreated session shows why.
                 using var transaction = connection.BeginTransaction();
@@ -427,6 +466,190 @@ namespace ScanHarness.Services.Persistence
             connection.Open();
             return connection;
         }
+
+        public IReadOnlyDictionary<string, Boundaries.PolicyOverride> LoadComponentPolicies()
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT id, classification, clearance, output_label, output_trust, enabled, brain FROM component_policies;";
+
+                var policies = new Dictionary<string, Boundaries.PolicyOverride>();
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    // Values this version doesn't know are ignored (the default applies) rather than failing to load.
+                    policies[reader.GetString(0)] = new Boundaries.PolicyOverride(
+                        ParseEnum<Classification>(GetNullableString(reader, 1)),
+                        ParseEnum<Boundaries.Sensitivity>(GetNullableString(reader, 2)),
+                        ParseEnum<Boundaries.Sensitivity>(GetNullableString(reader, 3)),
+                        ParseEnum<Boundaries.Trust>(GetNullableString(reader, 4)),
+                        reader.IsDBNull(5) ? null : reader.GetInt32(5) != 0,
+                        GetNullableString(reader, 6));
+                }
+
+                return policies;
+            }
+        }
+
+        public void SaveComponentPolicy(string id, Boundaries.PolicyOverride policy, string changedBy, DateTime changedAt)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO component_policies (id, classification, clearance, output_label, output_trust, enabled, brain, changed_by, changed_at)
+                    VALUES ($id, $classification, $clearance, $label, $trust, $enabled, $brain, $by, $at)
+                    ON CONFLICT(id) DO UPDATE SET
+                        classification = excluded.classification, clearance = excluded.clearance,
+                        output_label = excluded.output_label, output_trust = excluded.output_trust,
+                        enabled = excluded.enabled, brain = excluded.brain,
+                        changed_by = excluded.changed_by, changed_at = excluded.changed_at;
+                    """;
+                command.Parameters.AddWithValue("$id", id);
+                command.Parameters.AddWithValue("$classification", DbValue(policy.Classification?.ToString()));
+                command.Parameters.AddWithValue("$clearance", DbValue(policy.Clearance?.ToString()));
+                command.Parameters.AddWithValue("$label", DbValue(policy.OutputLabel?.ToString()));
+                command.Parameters.AddWithValue("$trust", DbValue(policy.OutputTrust?.ToString()));
+                command.Parameters.AddWithValue("$enabled", policy.Enabled is bool enabled ? (enabled ? 1 : 0) : DBNull.Value);
+                command.Parameters.AddWithValue("$brain", DbValue(policy.Brain));
+                command.Parameters.AddWithValue("$by", changedBy);
+                command.Parameters.AddWithValue("$at", Format(changedAt));
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public void DeleteComponentPolicies(string? id)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "DELETE FROM component_policies WHERE $id IS NULL OR id = $id;";
+                command.Parameters.AddWithValue("$id", DbValue(id));
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public void SaveEngagement(Engagement engagement)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO engagements (id, customer, domains_json, window_start, window_end, rules_json, excluded_json,
+                                             status, proposed_by, proposed_at, decided_by, decided_at, version)
+                    VALUES ($id, $customer, $domains, $start, $end, $rules, $excluded, $status, $proposedBy, $proposedAt,
+                            $decidedBy, $decidedAt, $version)
+                    ON CONFLICT(id) DO UPDATE SET
+                        status = excluded.status, decided_by = excluded.decided_by, decided_at = excluded.decided_at;
+                    """;
+                command.Parameters.AddWithValue("$id", engagement.Id);
+                command.Parameters.AddWithValue("$customer", engagement.Customer);
+                command.Parameters.AddWithValue("$domains", JsonSerializer.Serialize(engagement.Domains));
+                command.Parameters.AddWithValue("$start", DbValue(engagement.WindowStart?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+                command.Parameters.AddWithValue("$end", DbValue(engagement.WindowEnd?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+                command.Parameters.AddWithValue("$rules", JsonSerializer.Serialize(engagement.Rules));
+                command.Parameters.AddWithValue("$excluded", JsonSerializer.Serialize(engagement.Excluded));
+                command.Parameters.AddWithValue("$status", engagement.Status.ToString());
+                command.Parameters.AddWithValue("$proposedBy", engagement.ProposedBy);
+                command.Parameters.AddWithValue("$proposedAt", Format(engagement.ProposedAt));
+                command.Parameters.AddWithValue("$decidedBy", DbValue(engagement.DecidedBy));
+                command.Parameters.AddWithValue("$decidedAt", DbValue(engagement.DecidedAt));
+                command.Parameters.AddWithValue("$version", engagement.Version);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public IReadOnlyList<string> ListVerifiedDomains()
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT domain FROM verified_domains ORDER BY domain;";
+
+                var domains = new List<string>();
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    domains.Add(reader.GetString(0));
+                }
+
+                return domains;
+            }
+        }
+
+        public void SaveVerifiedDomain(string domain, string verifiedBy, DateTime verifiedAt)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO verified_domains (domain, verified_by, verified_at) VALUES ($domain, $by, $at)
+                    ON CONFLICT(domain) DO NOTHING;
+                    """;
+                command.Parameters.AddWithValue("$domain", domain);
+                command.Parameters.AddWithValue("$by", verifiedBy);
+                command.Parameters.AddWithValue("$at", Format(verifiedAt));
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public IReadOnlyList<Engagement> ListEngagements() => QueryEngagements(null);
+
+        public Engagement? GetEngagement(string id) => QueryEngagements(id).FirstOrDefault();
+
+        private IReadOnlyList<Engagement> QueryEngagements(string? id)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT id, customer, domains_json, window_start, window_end, rules_json, excluded_json, status,
+                           proposed_by, proposed_at, decided_by, decided_at, version
+                    FROM engagements
+                    WHERE $id IS NULL OR id = $id
+                    ORDER BY proposed_at DESC;
+                    """;
+                command.Parameters.AddWithValue("$id", DbValue(id));
+
+                var engagements = new List<Engagement>();
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    engagements.Add(new Engagement
+                    {
+                        Id = reader.GetString(0),
+                        Customer = reader.GetString(1),
+                        Domains = JsonSerializer.Deserialize<List<string>>(reader.GetString(2)) ?? new(),
+                        WindowStart = ParseDate(GetNullableString(reader, 3)),
+                        WindowEnd = ParseDate(GetNullableString(reader, 4)),
+                        Rules = JsonSerializer.Deserialize<List<string>>(reader.GetString(5)) ?? new(),
+                        Excluded = JsonSerializer.Deserialize<List<string>>(reader.GetString(6)) ?? new(),
+                        Status = Enum.TryParse<EngagementStatus>(reader.GetString(7), out var status) ? status : EngagementStatus.Rejected,
+                        ProposedBy = reader.GetString(8),
+                        ProposedAt = Parse(reader.GetString(9)),
+                        DecidedBy = GetNullableString(reader, 10),
+                        DecidedAt = GetNullableDate(reader, 11),
+                        Version = reader.GetInt32(12),
+                    });
+                }
+
+                return engagements;
+            }
+        }
+
+        private static T? ParseEnum<T>(string? value) where T : struct, Enum =>
+            Enum.TryParse<T>(value, out var parsed) && Enum.IsDefined(parsed) ? parsed : null;
+
+        private static DateOnly? ParseDate(string? value) =>
+            DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
 
         private static List<HarnessSession> ReadSessions(SqliteCommand command)
         {

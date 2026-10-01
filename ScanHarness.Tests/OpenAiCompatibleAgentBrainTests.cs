@@ -388,7 +388,8 @@ namespace ScanHarness.Tests
             Assert.Equal(Model, json["model"]!.GetValue<string>());
             Assert.Equal(0, json["temperature"]!.GetValue<double>());
             var toolNames = json["tools"]!.AsArray().Select(t => t!["function"]!["name"]!.GetValue<string>());
-            Assert.Equal(new[] { "simple_scanner", "attack", "weather_forecast" }, toolNames);
+            // Tools from tools.json, then the agents offered to the orchestrator (agents.json).
+            Assert.Equal(new[] { "simple_scanner", "attack", "weather_forecast", "analyse_findings", "estimate_cost" }, toolNames);
             Assert.Equal("scan example.com", json["messages"]![1]!["content"]!.GetValue<string>());
         }
 

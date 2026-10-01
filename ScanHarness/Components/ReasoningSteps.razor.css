@@ -1,0 +1,50 @@
+.reasoning-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.reasoning-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--sh-text-muted);
+}
+
+.reasoning-step {
+    border-left: 2px solid var(--sh-info);
+    padding-left: 0.5rem;
+}
+
+.reasoning-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.68rem;
+    color: var(--sh-text-subtle);
+}
+
+.reasoning-stage {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--sh-info);
+}
+
+.reasoning-brain {
+    font-family: var(--sh-font-mono);
+}
+
+.reasoning-text {
+    white-space: pre-wrap;
+    font-size: 0.78rem;
+    color: var(--sh-text-muted);
+    max-height: 16rem;
+    overflow-y: auto;
+}
+
+    .reasoning-text.is-withheld {
+        font-style: italic;
+        color: var(--sh-danger);
+    }

@@ -1,5 +1,7 @@
 @using ScanHarness.Models
 @using ScanHarness.Services
+@using ScanHarness.Services.Boundaries
+@inject ComponentPolicyService Policies
 
 @* The conversation: the user's questions on the right, the agent's replies on the left. A reply that
    led to a tool call can be selected to show that call's output in the tool output pane. *@
@@ -8,7 +10,7 @@
     <div class="chat-log" role="log" aria-live="polite" aria-label="Conversation with the agent">
         @if (Turns.Count == 0 && !IsSummarizingSession)
         {
-            <div class="chat-empty">Ask the agent to scan a site, run a simulated attack or get the weather.</div>
+            <div class="chat-empty">Ask the agent to scan a site, run a simulated attack, get the weather, or analyse findings and estimate the cost.</div>
         }
 
         @for (var i = 0; i < Turns.Count; i++)
@@ -99,9 +101,14 @@
                     {
                         <div class="chat-tool">
                             <span class="chat-tool-name">@call.Tool/@call.Action</span>
-                            @if (ToolCatalog.ClassificationOf(call.Tool) is Classification toolClass)
+                            @if (Policies.ForTool(call.Tool, call.Action) is ComponentPolicy toolPolicy)
                             {
-                                <span class="sh-class-tag is-@toolClass.Label()" title="@($"{toolClass.Label()} tool")">@toolClass.Label()</span>
+                                var toolClass = toolPolicy.Classification;
+                                <span class="sh-class-tag is-@toolClass.Label()" title="@($"{toolClass.Label()} {(toolPolicy.Kind == ComponentKind.Agent ? "agent" : "tool")}")">@toolClass.Label()</span>
+                                @if (toolPolicy.OutputTrust == Trust.Untrusted)
+                                {
+                                    <span class="sh-class-tag is-any" title="Its output is untrusted: it's shown, but can't cause an action on its own">untrusted output</span>
+                                }
                             }
                             <span class="badge @StatusStyles.PillClass(call.Status)">@call.Status</span>
                             <span class="chat-tool-hint">@(selected ? "Output shown below" : "Select to show output")</span>
@@ -110,6 +117,11 @@
                     else if (turn.ToolBlocked)
                     {
                         <div class="chat-blocked-note">Tool call blocked by a ToolRule control: the tool was not run.</div>
+                        @* The built-in checks (engagement scope, disabled tools) say why in plain words. *@
+                        @foreach (var builtin in turn.ReplyControls.Where(v => v.ControlId.StartsWith("builtin:", StringComparison.Ordinal)))
+                        {
+                            <div class="chat-blocked-note chat-blocked-reason">@builtin.Name: @builtin.Detail</div>
+                        }
                     }
 
                     @if (turn.Summary != null)
@@ -123,6 +135,15 @@
                     else if (isLast && IsSummarizing && turn.ToolCall != null)
                     {
                         <div class="chat-typing">Summarising<span class="chat-dots"><span></span><span></span><span></span></span></div>
+                    }
+
+                    @* Reasoning models' thinking behind this reply; opening it doesn't select the reply. *@
+                    @if (turn.Reasoning.Count > 0)
+                    {
+                        <details class="chat-reasoning" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">
+                            <summary>Reasoning (@turn.Reasoning.Count @(turn.Reasoning.Count == 1 ? "step" : "steps"))</summary>
+                            <ReasoningSteps Steps="turn.Reasoning" Controls="turn.ReasoningControls" />
+                        </details>
                     }
                 </div>
             </div>
@@ -305,6 +326,26 @@
     .chat-summary .control-pip-wrap {
         margin-left: auto;
         align-self: center;
+    }
+
+    .chat-reasoning {
+        margin-top: 0.35rem;
+        font-size: 0.75rem;
+    }
+
+        .chat-reasoning > summary {
+            cursor: pointer;
+            color: var(--sh-info);
+            font-weight: 600;
+        }
+
+        .chat-reasoning[open] > summary {
+            margin-bottom: 0.3rem;
+        }
+
+    .chat-blocked-note.chat-blocked-reason {
+        margin-top: 0.1rem;
+        color: var(--sh-text-muted);
     }
 
     .chat-blocked-note {

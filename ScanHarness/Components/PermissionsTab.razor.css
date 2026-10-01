@@ -1,0 +1,85 @@
+.permissions {
+    padding: 0.8rem 0.7rem 0.7rem;
+}
+
+.permissions-intro {
+    color: var(--sh-text-muted);
+    font-size: 0.8rem;
+    margin: 0 0 0.5rem;
+}
+
+.permissions-heading {
+    margin: 0.8rem 0 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sh-text-muted);
+}
+
+.permissions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+    .permissions-table th {
+        text-align: left;
+        font-weight: 600;
+        color: var(--sh-text-subtle);
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+        border-bottom: 1px solid var(--sh-border-strong);
+    }
+
+    .permissions-table td {
+        padding: 0.25rem 0.4rem;
+        border-bottom: 1px solid var(--sh-border);
+        vertical-align: middle;
+    }
+
+.permissions-name {
+    font-family: var(--sh-font-mono);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.permissions-rules {
+    color: var(--sh-text-muted);
+    font-size: 0.74rem;
+}
+
+.permissions-select {
+    border: 1px solid var(--sh-border-strong);
+    border-radius: 4px;
+    background: var(--sh-surface);
+    color: var(--sh-text);
+    font-size: 0.76rem;
+    padding: 0.05rem 0.3rem;
+}
+
+    .permissions-select.is-internal,
+    .permissions-select.is-trusted {
+        color: var(--sh-info);
+    }
+
+    .permissions-select.is-external,
+    .permissions-select.is-untrusted {
+        color: var(--sh-warning);
+    }
+
+.permissions-link {
+    border: 1px solid var(--sh-border-strong);
+    border-radius: 4px;
+    background: var(--sh-surface);
+    padding: 0 0.45rem;
+    font-size: 0.68rem;
+    line-height: 1.1rem;
+    color: var(--sh-neutral);
+}
+
+.permissions-note {
+    color: var(--sh-warning);
+    font-size: 0.75rem;
+    margin: 0.3rem 0 0;
+}

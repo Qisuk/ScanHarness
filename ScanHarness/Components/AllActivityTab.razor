@@ -6,6 +6,7 @@
 @inject AgentBrainSelector BrainSelector
 @inject ControlService Controls
 @inject LogService Log
+@inject ScanHarness.Services.Boundaries.BoundaryBroker Broker
 
 @* Admin only: every request across all users' sessions, filterable by user, session, time range and
    control outcome. Selecting a row opens its session with that request's tool output shown. *@
@@ -283,6 +284,8 @@ else
             },
             brain: brain.Name);
         ControlReporter.Report(Log, check, brain.Name);
+        Broker.RecordReasoning(ReasoningStages.ActivitySummary, brain.Name, brain.Classification, summary.Reasoning,
+            target: ChatTranscript.Targets.ActivitySummary);
     }
 
     private ActivityFilter CurrentFilter() =>

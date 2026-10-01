@@ -16,10 +16,10 @@ namespace ScanHarness.Tests
             var controls = ControlCatalog.Load(Path.Combine(AppContext.BaseDirectory, ControlCatalog.DefaultFileName));
 
             Assert.Equal(
-                new[] { "chat-in-contains-badinstruction", IgnorePrevious, "chat-out-contains-script-tag" },
+                new[] { "chat-in-contains-badinstruction", IgnorePrevious, "chat-out-contains-script-tag", "tool-out-instruction-text" },
                 controls.Select(c => c.Id));
-            Assert.Equal(new[] { ControlStage.ChatIn, ControlStage.ChatIn, ControlStage.ChatOut }, controls.Select(c => c.Stage));
-            Assert.Equal(new[] { ControlRuleType.Contains, ControlRuleType.Regex, ControlRuleType.Contains }, controls.Select(c => c.Rule.Type));
+            Assert.Equal(new[] { ControlStage.ChatIn, ControlStage.ChatIn, ControlStage.ChatOut, ControlStage.ToolOut }, controls.Select(c => c.Stage));
+            Assert.Equal(new[] { ControlRuleType.Contains, ControlRuleType.Regex, ControlRuleType.Contains, ControlRuleType.Regex }, controls.Select(c => c.Rule.Type));
             Assert.All(controls, c => Assert.Equal(ControlMode.Block, c.DefaultMode));
             Assert.True(controls[0].Rule.CaseSensitive);
         }
@@ -126,7 +126,7 @@ namespace ScanHarness.Tests
             Assert.Contains("control #4: \"id\" is required.", error);
             Assert.Contains("control #4: \"name\" is required.", error);
             Assert.Contains("control #4: A control rule needs a value to look for.", error);
-            Assert.Contains("control \"no-rule\": \"stage\" must be one of ChatIn, ChatOut, ToolRule.", error);
+            Assert.Contains("control \"no-rule\": \"stage\" must be one of ChatIn, ChatOut, ToolRule, ToolOut.", error);
             Assert.Contains("control \"no-rule\": \"defaultMode\" must be one of Off, Advise, Block.", error);
             Assert.Contains("control \"no-rule\": \"rule.type\" must be \"contains\" or \"regex\".", error);
         }

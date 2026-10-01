@@ -15,6 +15,9 @@ public class ServerFixture
 
     public static string BaseUrl => Host;
 
+    /// <summary>The fake OpenAI-compatible endpoint the app's LLM brains talk to.</summary>
+    public static FakeLlmServer FakeLlm { get; } = new();
+
     private static readonly string DatabaseDirectory = Path.Combine(Path.GetTempPath(), "scanharness-uitests", Guid.NewGuid().ToString("N"));
     private static string DatabasePath => Path.Combine(DatabaseDirectory, "activity.db");
 
@@ -36,8 +39,12 @@ public class ServerFixture
         };
         _process.StartInfo.Environment["ASPNETCORE_URLS"] = Host;
         _process.StartInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
-        // UI tests need deterministic decisions, so use only the keyword brain even if an LLM endpoint is running.
-        _process.StartInfo.Environment["Llm__Enabled"] = "false";
+        // UI tests need deterministic decisions: the only LLM is a fake reasoning model (FakeLlmServer), never a real
+        // endpoint, and the keyword brain stays the default.
+        _process.StartInfo.Environment["Llm__Enabled"] = "true";
+        _process.StartInfo.Environment["Llm__BaseUrl"] = FakeLlm.BaseUrl;
+        _process.StartInfo.Environment["Llm__DefaultModel"] = "";
+        _process.StartInfo.Environment["Llm__DefaultSummaryModel"] = "";
         // A fresh database per run, so tests start empty and never touch the real activity data.
         _process.StartInfo.Environment["Persistence__DatabasePath"] = DatabasePath;
         // Pin tool classifications so tests don't depend on appsettings.json. Attack is set to External
@@ -45,6 +52,9 @@ public class ServerFixture
         _process.StartInfo.Environment["Tools__Classifications__simple_scanner"] = "Internal";
         _process.StartInfo.Environment["Tools__Classifications__attack"] = "External";
         _process.StartInfo.Environment["Tools__Classifications__weather_forecast"] = "External";
+        // Most tests scan example.com without an engagement; scope enforcement is covered by unit tests.
+        _process.StartInfo.Environment["Engagements__EnforceScope"] = "false";
+        _process.StartInfo.Environment["Engagements__VerifiedDomains__0"] = "acme.test";
         _process.Start();
 
         // Drain stdout/stderr (so the app never blocks on a full pipe buffer) and tee to a log file for debugging.
@@ -61,6 +71,7 @@ public class ServerFixture
     [OneTimeTearDown]
     public void StopServer()
     {
+        FakeLlm.Dispose();
         if (_process is { HasExited: false })
         {
             _process.Kill(entireProcessTree: true);

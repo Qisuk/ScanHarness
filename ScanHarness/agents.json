@@ -1,0 +1,46 @@
+{
+  "$comment": "Agents: a brain with one job and a fixed input and output contract. kind picks the implementation and its contract: FindingsAnalyst (input: the session's findings), CostEstimator (input: an engagement summary with no hostnames), Scoping (input: a customer conversation). brain: rule-based, or an LLM model id served by the Llm endpoint; the agent is internal or external according to its brain. clearance: the most sensitive data it may receive (default: from its brain's classification); anything more sensitive is pseudonymised or blocked. outputTrust: Trusted | Untrusted. offeredToOrchestrator: whether the harness's decision brain can call it as a tool (the scoping agent is quarantined on its own page). keywords: words the keyword brain matches to choose it.",
+  "agents": [
+    {
+      "id": "findings-analyst",
+      "functionName": "analyse_findings",
+      "name": "Findings analyst",
+      "kind": "FindingsAnalyst",
+      "description": "Review the scan and attack results already gathered in this session and recommend remediation, most urgent first. Use when the user asks to analyse or review findings, or for recommendations or fixes.",
+      "brain": "rule-based",
+      "outputTrust": "Untrusted",
+      "requiresApproval": false,
+      "offeredToOrchestrator": true,
+      "confirmation": "I'll ask the findings analyst to review this session's results and recommend fixes.",
+      "keywords": [ "analyse", "analyze", "analysis", "recommend", "remediat", "review the findings", "what should we fix" ]
+    },
+    {
+      "id": "cost-estimator",
+      "functionName": "estimate_cost",
+      "name": "Cost estimator",
+      "kind": "CostEstimator",
+      "description": "Estimate the effort and cost of an engagement from this session's results (host count and findings by severity). Use when the user asks for a cost, price, quote or estimate.",
+      "brain": "rule-based",
+      "clearance": "Engagement",
+      "outputTrust": "Untrusted",
+      "requiresApproval": false,
+      "offeredToOrchestrator": true,
+      "confirmation": "I'll ask the cost estimator for an estimate based on this session's results.",
+      "keywords": [ "cost", "price", "pricing", "quote", "estimate", "budget" ]
+    },
+    {
+      "id": "scoping-agent",
+      "functionName": "propose_scope",
+      "name": "Scoping agent",
+      "kind": "Scoping",
+      "description": "Talks to the customer to agree the sites in scope, the testing window and the rules of engagement, and proposes a scope for approval.",
+      "brain": "rule-based",
+      "clearance": "Engagement",
+      "outputTrust": "Untrusted",
+      "requiresApproval": true,
+      "offeredToOrchestrator": false,
+      "confirmation": "I'll draft a scope proposal from the conversation.",
+      "keywords": []
+    }
+  ]
+}

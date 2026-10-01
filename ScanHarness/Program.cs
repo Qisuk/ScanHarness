@@ -34,6 +34,17 @@ builder.Services.AddScoped<ScanHarness.Services.Controls.ControlService>();
 builder.Services.AddScoped<ActivityExplorer>();
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<ToolCallService>();
+
+// Trust boundaries (docs/design/multi-agent-boundaries.md): each brain's, tool's and agent's policy
+// (shared by everyone, editable on the Permissions tab), engagements and scope, the broker every
+// boundary crossing goes through, and the agents.
+builder.Services.Configure<ToolOptions>(builder.Configuration.GetSection(ToolOptions.SectionName));
+builder.Services.Configure<ScanHarness.Services.Agents.AgentOptions>(builder.Configuration.GetSection(ScanHarness.Services.Agents.AgentOptions.SectionName));
+builder.Services.Configure<ScanHarness.Services.Engagements.EngagementOptions>(builder.Configuration.GetSection(ScanHarness.Services.Engagements.EngagementOptions.SectionName));
+builder.Services.AddSingleton<ScanHarness.Services.Boundaries.ComponentPolicyService>();
+builder.Services.AddScoped<ScanHarness.Services.Engagements.EngagementService>();
+builder.Services.AddScoped<ScanHarness.Services.Boundaries.BoundaryBroker>();
+builder.Services.AddScoped<ScanHarness.Services.Agents.AgentRunner>();
 // Agent "brains" that decide which tool to call: the rule-based keyword brain, plus one brain
 // per model served by the OpenAI-compatible endpoint in the "Llm" config section (Ollama by default).
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection(LlmOptions.SectionName));
@@ -57,14 +68,22 @@ var controls = ScanHarness.Services.Controls.ControlCatalog.Load(controlsPath);
 ScanHarness.Services.Controls.ControlCatalog.Use(controls);
 app.Logger.LogInformation("Loaded {Count} control(s) from {Path}.", controls.Count, controlsPath);
 
-// Tools are internal or external (used to scope ToolRule controls); config can override each tool's default.
-var toolClassifications = app.Configuration.GetSection("Tools:Classifications").Get<Dictionary<string, Classification>>() ?? new();
-foreach (var unknown in toolClassifications.Keys.Where(name => ToolCatalog.FindByFunctionName(name) == null))
+// Tools (tools.json) and agents (agents.json) are read the same way: an invalid file stops startup with
+// every problem listed. Agents offered to the orchestrator become tools its brain can choose.
+string ContentPath(string path) => Path.IsPathRooted(path) ? path : Path.Combine(app.Environment.ContentRootPath, path);
+var toolOptions = app.Services.GetRequiredService<IOptions<ToolOptions>>().Value;
+var agentOptions = app.Services.GetRequiredService<IOptions<ScanHarness.Services.Agents.AgentOptions>>().Value;
+ToolCatalog.Use(ToolCatalog.Load(ContentPath(toolOptions.DefinitionsPath)));
+ScanHarness.Services.Agents.AgentCatalog.Use(ScanHarness.Services.Agents.AgentCatalog.Load(ContentPath(agentOptions.DefinitionsPath)));
+app.Logger.LogInformation("Loaded {Tools} tool(s) and {Agents} agent(s).", ToolCatalog.Tools.Count, ScanHarness.Services.Agents.AgentCatalog.Defined.Count);
+
+// Config can override where each tool runs (Tools:Classifications, by function name); the Permissions tab can override that.
+foreach (var unknown in toolOptions.Classifications.Keys.Where(name => ToolCatalog.FindByFunctionName(name) == null))
 {
     app.Logger.LogWarning("Tools:Classifications names an unknown tool '{Tool}'; expected one of {Tools}.",
-        unknown, string.Join(", ", ToolCatalog.All.Select(t => t.FunctionName)));
+        unknown, string.Join(", ", ToolCatalog.Tools.Select(t => t.FunctionName)));
 }
-ToolCatalog.UseClassifications(toolClassifications);
+app.Services.GetRequiredService<ScanHarness.Services.Boundaries.ComponentPolicyService>().UseToolClassifications(toolOptions.Classifications);
 
 // Create the database if needed and close out calls a previous run left unfinished.
 var interrupted = app.Services.GetRequiredService<IActivityStore>().Initialize();

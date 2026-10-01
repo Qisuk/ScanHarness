@@ -13,7 +13,13 @@ namespace ScanHarness.Services.Controls
         ChatOut,
 
         /// <summary>A tool call the brain chose, before the tool is executed.</summary>
-        ToolRule
+        ToolRule,
+
+        /// <summary>
+        /// A tool's or agent's result, before it is passed to any brain. Tool output can be influenced by the
+        /// target, so it is untrusted input. Block keeps it away from model brains: the rule-based summary is used.
+        /// </summary>
+        ToolOut
     }
 
     /// <summary>What a control does when it matches.</summary>
@@ -189,6 +195,7 @@ namespace ScanHarness.Services.Controls
             ControlStage.ChatIn => "Chat In",
             ControlStage.ChatOut => "Chat Out",
             ControlStage.ToolRule => "ToolRule",
+            ControlStage.ToolOut => "ToolOut",
             _ => stage.ToString()
         };
 

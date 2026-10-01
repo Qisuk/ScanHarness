@@ -27,6 +27,9 @@ namespace ScanHarness.Models
         /// <summary>Set when the brain itself failed (e.g. the LLM endpoint was unreachable), as opposed to finding no tool.</summary>
         public string? Error { get; set; }
 
+        /// <summary>The model's reasoning behind the decision, when it is a reasoning model; logged with the request.</summary>
+        public string? Reasoning { get; set; }
+
         public static ToolDecision NoTool(string message) => new() { ToolFound = false, Message = message };
 
         public static ToolDecision Failed(string message, string error) => new() { ToolFound = false, Message = message, Error = error };

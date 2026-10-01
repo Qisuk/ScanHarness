@@ -30,6 +30,7 @@ namespace ScanHarness.Components
             LogLevel.User => "sh-pill-user",
             LogLevel.Summary => "sh-pill-success",
             LogLevel.Block => "sh-pill-danger",
+            LogLevel.Reasoning => "sh-pill-info",
             _ => "sh-pill-accent"
         };
 

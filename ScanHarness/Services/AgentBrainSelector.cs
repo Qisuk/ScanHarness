@@ -29,20 +29,24 @@ namespace ScanHarness.Services
         private readonly OpenAiCompatibleClient _llmClient;
         private readonly LlmOptions _options;
         private readonly ILogger<AgentBrainSelector> _logger;
+        private readonly Boundaries.ComponentPolicyService? _policies;
         private readonly Dictionary<string, IAgentBrain> _brains = new();
         private List<BrainOption> _choices = new();
         private bool _initialized;
 
+        /// <param name="policies">Supplies each brain's classification, including Permissions tab edits; null uses the Llm config only.</param>
         public AgentBrainSelector(
             KeywordAgentBrain keywordBrain,
             OpenAiCompatibleClient llmClient,
             IOptions<LlmOptions> options,
-            ILogger<AgentBrainSelector> logger)
+            ILogger<AgentBrainSelector> logger,
+            Boundaries.ComponentPolicyService? policies = null)
         {
             _keywordBrain = keywordBrain;
             _llmClient = llmClient;
             _options = options.Value;
             _logger = logger;
+            _policies = policies;
 
             _brains[KeywordBrainId] = keywordBrain;
             _choices.Add(KeywordOption);
@@ -55,8 +59,22 @@ namespace ScanHarness.Services
         /// <summary>Id of <see cref="Current"/>.</summary>
         public string CurrentId { get; private set; } = KeywordBrainId;
 
-        /// <summary>Brains the user can choose from; the keyword brain is always first.</summary>
-        public IReadOnlyList<BrainOption> Options => _choices;
+        /// <summary>Brains the user can choose from; the keyword brain is always first. Labels show each brain's current classification.</summary>
+        public IReadOnlyList<BrainOption> Options => _choices.Select(Labelled).ToList();
+
+        /// <summary>Id of <see cref="SummaryBrain"/> itself (never <see cref="SameAsDecisionId"/>).</summary>
+        public string SummaryBrainKey => SummaryBrainId == SameAsDecisionId ? CurrentId : SummaryBrainId;
+
+        /// <summary>Where a brain runs: its Permissions tab edit, else the Llm config.</summary>
+        public Classification ClassificationOf(string id) =>
+            id == KeywordBrainId ? _keywordBrain.Classification : _policies?.ClassificationOfBrain(id) ?? _options.ClassificationFor(id);
+
+        private BrainOption Labelled(BrainOption option)
+        {
+            var classification = ClassificationOf(option.Id);
+            var name = option.Id == KeywordBrainId ? _keywordBrain.Name : option.Id;
+            return option with { DisplayName = $"{name} · {classification.Label()}", Classification = classification };
+        }
 
         /// <summary>Id of the summary brain, or <see cref="SameAsDecisionId"/> to follow the decision brain.</summary>
         public string SummaryBrainId { get; private set; } = SameAsDecisionId;
@@ -66,7 +84,7 @@ namespace ScanHarness.Services
 
         /// <summary>Choices for the summary brain: "Same as decision" followed by every brain.</summary>
         public IReadOnlyList<BrainOption> SummaryOptions =>
-            new[] { new BrainOption(SameAsDecisionId, "Same as decision", IsLlm: false) }.Concat(_choices).ToList();
+            new[] { new BrainOption(SameAsDecisionId, "Same as decision", IsLlm: false) }.Concat(Options).ToList();
 
         /// <summary>
         /// Describes a problem with the LLM endpoint for the UI: null when models were listed
@@ -174,7 +192,7 @@ namespace ScanHarness.Services
             if (!_brains.TryGetValue(id, out var brain))
             {
                 brain = new OpenAiCompatibleAgentBrain(_llmClient, id, _options.DecisionMode, _options.Temperature,
-                    classification: _options.ClassificationFor(id));
+                    classification: _options.ClassificationFor(id), classificationProvider: () => ClassificationOf(id));
                 _brains[id] = brain;
             }
 

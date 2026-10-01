@@ -47,6 +47,14 @@ namespace ScanHarness.Services
             var lower = text.ToLowerInvariant();
             var url = ExtractUrl(text);
 
+            // Agents and any tool added in tools.json with keywords. Checked first: agents only read
+            // stored results, so choosing one can't cause anything to happen to a target.
+            var keyworded = ToolCatalog.All.FirstOrDefault(t => t.Keywords?.Any(k => lower.Contains(k.ToLowerInvariant())) == true);
+            if (keyworded != null)
+            {
+                return Task.FromResult(DecisionFor(keyworded, url));
+            }
+
             var wantsAttack = AttackKeywords.Any(k => lower.Contains(k));
             var wantsScan = ScanKeywords.Any(k => lower.Contains(k));
 
@@ -113,7 +121,7 @@ namespace ScanHarness.Services
 
             return Task.FromResult(ToolDecision.NoTool(
                 "I don't have a suitable tool for that request. I can scan a URL for links, run a simulated attack " +
-                "against a URL, or get a weather forecast."));
+                "against a URL, get a weather forecast, or ask an agent to analyse this session's findings or estimate the cost."));
         }
 
         /// <summary>Summarises the call from the tool's actual response using fixed rules.</summary>
@@ -127,6 +135,36 @@ namespace ScanHarness.Services
         /// <summary>Summarises activity across sessions using fixed rules.</summary>
         public Task<ActionSummary> SummarizeActivityAsync(IReadOnlyList<ActivityRow> rows, string window) =>
             Task.FromResult(new ActionSummary(ActivitySummaryBuilder.Combine(rows, window)));
+
+        // A decision for a catalog entry matched by keyword: a URL parameter takes the URL in the prompt,
+        // and a required parameter that can't be filled means asking for it instead.
+        private static ToolDecision DecisionFor(ToolDefinition tool, string? url)
+        {
+            var parameters = new Dictionary<string, string>();
+            foreach (var parameter in tool.Parameters)
+            {
+                if (parameter.Type == ToolParameterType.Url && url != null)
+                {
+                    parameters[parameter.Name] = url;
+                }
+                else if (parameter.Required)
+                {
+                    return ToolDecision.NoTool(parameter.Type == ToolParameterType.Url
+                        ? $"I can use the {tool.FunctionName} tool, but I need a target URL. Which URL should I use?"
+                        : $"I can use the {tool.FunctionName} tool, but I need the {parameter.Name}.");
+                }
+            }
+
+            return new ToolDecision
+            {
+                ToolFound = true,
+                Tool = tool.Tool,
+                Action = tool.Action,
+                Parameters = parameters,
+                RequiresApproval = tool.RequiresApproval,
+                Message = tool.FormatConfirmation(parameters),
+            };
+        }
 
         private static string? ExtractUrl(string text)
         {

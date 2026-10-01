@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ScanHarness.Services;
+using ScanHarness.Services.Boundaries;
 using ScanHarness.Services.Controls;
 using ScanHarness.Services.Llm;
 using Xunit;
@@ -72,26 +73,27 @@ namespace ScanHarness.Tests
 
         // --- Tools ---
 
+        private static Classification? ToolClass(ComponentPolicyService policies, string tool) =>
+            policies.ForTool(tool, null)?.Classification;
+
         [Fact]
-        public void Tools_have_default_classifications_that_config_can_override()
+        public void Tools_take_their_classification_from_tools_json_then_config_then_edits()
         {
-            // The only test that changes the overrides; it restores them so other tests see the defaults.
-            try
-            {
-                Assert.Equal(Classification.Internal, ToolCatalog.ClassificationOf("scanner"));
-                Assert.Equal(Classification.Internal, ToolCatalog.ClassificationOf("attack"));
-                Assert.Equal(Classification.External, ToolCatalog.ClassificationOf("weather"));
-                Assert.Null(ToolCatalog.ClassificationOf("no-such-tool"));
+            var policies = new ComponentPolicyService();
 
-                ToolCatalog.UseClassifications(new Dictionary<string, Classification> { ["SIMPLE_SCANNER"] = Classification.External });
+            Assert.Equal(Classification.Internal, ToolClass(policies, "scanner"));
+            Assert.Equal(Classification.Internal, ToolClass(policies, "attack"));
+            Assert.Equal(Classification.External, ToolClass(policies, "weather"));
+            Assert.Null(ToolClass(policies, "no-such-tool"));
 
-                Assert.Equal(Classification.External, ToolCatalog.ClassificationOf("scanner"));
-                Assert.Equal(Classification.External, ToolCatalog.ClassificationOf("weather"));
-            }
-            finally
-            {
-                ToolCatalog.UseClassifications(new Dictionary<string, Classification>());
-            }
+            policies.UseToolClassifications(new Dictionary<string, Classification> { ["SIMPLE_SCANNER"] = Classification.External });
+            Assert.Equal(Classification.External, ToolClass(policies, "scanner"));
+
+            policies.Update("tool:simple_scanner", new PolicyOverride(Classification: Classification.Internal), "admin");
+            Assert.Equal(Classification.Internal, ToolClass(policies, "scanner"));
+
+            policies.Reset("tool:simple_scanner");
+            Assert.Equal(Classification.External, ToolClass(policies, "scanner"));
         }
 
         // --- Control scopes ---
@@ -201,8 +203,8 @@ namespace ScanHarness.Tests
             var service = ServiceWith(ScopedControls);
             const string call = "weather/forecast url=x";
 
-            Assert.True(service.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, call, ToolCatalog.ClassificationOf("weather")).IsBlocked);
-            Assert.False(service.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, call, ToolCatalog.ClassificationOf("scanner")).IsFlagged);
+            Assert.True(service.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, call, ToolClass(new ComponentPolicyService(), "weather")).IsBlocked);
+            Assert.False(service.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, call, ToolClass(new ComponentPolicyService(), "scanner")).IsFlagged);
             Assert.Equal("tool call for an external tool",
                 service.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, call, Classification.External).Violations[0].TargetDescription);
         }
