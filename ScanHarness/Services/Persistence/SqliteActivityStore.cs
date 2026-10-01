@@ -35,57 +35,62 @@ namespace ScanHarness.Services.Persistence
             lock (_gate)
             {
                 using var connection = Open();
-                Execute(connection, """
-                    CREATE TABLE IF NOT EXISTS sessions (
-                        id                TEXT PRIMARY KEY,
-                        user_name         TEXT NOT NULL,
-                        started_at        TEXT NOT NULL,
-                        last_activity_at  TEXT NOT NULL,
-                        title             TEXT
-                    );
-                    CREATE TABLE IF NOT EXISTS tool_calls (
-                        id                  TEXT PRIMARY KEY,
-                        session_id          TEXT NOT NULL REFERENCES sessions(id),
-                        user_name           TEXT NOT NULL,
-                        tool                TEXT NOT NULL,
-                        action              TEXT NOT NULL,
-                        parameters_json     TEXT NOT NULL,
-                        created_at          TEXT NOT NULL,
-                        status              TEXT NOT NULL,
-                        result              TEXT,
-                        requires_approval   INTEGER NOT NULL,
-                        is_approved         INTEGER NOT NULL,
-                        approval_decision   TEXT,
-                        approval_decided_at TEXT,
-                        approval_decided_by TEXT,
-                        brain               TEXT,
-                        error               TEXT,
-                        summary             TEXT,
-                        summary_brain       TEXT,
-                        completed_at        TEXT
-                    );
-                    CREATE TABLE IF NOT EXISTS log_entries (
-                        id            TEXT PRIMARY KEY,
-                        session_id    TEXT NOT NULL REFERENCES sessions(id),
-                        user_name     TEXT NOT NULL,
-                        timestamp     TEXT NOT NULL,
-                        level         TEXT NOT NULL,
-                        message       TEXT NOT NULL,
-                        tool_call_id  TEXT,
-                        brain         TEXT,
-                        data_json     TEXT
-                    );
-                    CREATE TABLE IF NOT EXISTS control_settings (
-                        user_name   TEXT NOT NULL,
-                        control_id  TEXT NOT NULL,
-                        mode        TEXT NOT NULL,
-                        changed_at  TEXT NOT NULL,
-                        PRIMARY KEY (user_name, control_id)
-                    );
-                    CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_name, last_activity_at);
-                    CREATE INDEX IF NOT EXISTS ix_tool_calls_session ON tool_calls(session_id, created_at);
-                    CREATE INDEX IF NOT EXISTS ix_log_entries_session ON log_entries(session_id, timestamp);
-                    """);
+                // Fixed schema text; values are only ever passed as parameters (see below and the other queries).
+                using (var schema = connection.CreateCommand())
+                {
+                    schema.CommandText = """
+                        CREATE TABLE IF NOT EXISTS sessions (
+                            id                TEXT PRIMARY KEY,
+                            user_name         TEXT NOT NULL,
+                            started_at        TEXT NOT NULL,
+                            last_activity_at  TEXT NOT NULL,
+                            title             TEXT
+                        );
+                        CREATE TABLE IF NOT EXISTS tool_calls (
+                            id                  TEXT PRIMARY KEY,
+                            session_id          TEXT NOT NULL REFERENCES sessions(id),
+                            user_name           TEXT NOT NULL,
+                            tool                TEXT NOT NULL,
+                            action              TEXT NOT NULL,
+                            parameters_json     TEXT NOT NULL,
+                            created_at          TEXT NOT NULL,
+                            status              TEXT NOT NULL,
+                            result              TEXT,
+                            requires_approval   INTEGER NOT NULL,
+                            is_approved         INTEGER NOT NULL,
+                            approval_decision   TEXT,
+                            approval_decided_at TEXT,
+                            approval_decided_by TEXT,
+                            brain               TEXT,
+                            error               TEXT,
+                            summary             TEXT,
+                            summary_brain       TEXT,
+                            completed_at        TEXT
+                        );
+                        CREATE TABLE IF NOT EXISTS log_entries (
+                            id            TEXT PRIMARY KEY,
+                            session_id    TEXT NOT NULL REFERENCES sessions(id),
+                            user_name     TEXT NOT NULL,
+                            timestamp     TEXT NOT NULL,
+                            level         TEXT NOT NULL,
+                            message       TEXT NOT NULL,
+                            tool_call_id  TEXT,
+                            brain         TEXT,
+                            data_json     TEXT
+                        );
+                        CREATE TABLE IF NOT EXISTS control_settings (
+                            user_name   TEXT NOT NULL,
+                            control_id  TEXT NOT NULL,
+                            mode        TEXT NOT NULL,
+                            changed_at  TEXT NOT NULL,
+                            PRIMARY KEY (user_name, control_id)
+                        );
+                        CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_name, last_activity_at);
+                        CREATE INDEX IF NOT EXISTS ix_tool_calls_session ON tool_calls(session_id, created_at);
+                        CREATE INDEX IF NOT EXISTS ix_log_entries_session ON log_entries(session_id, timestamp);
+                        """;
+                    schema.ExecuteNonQuery();
+                }
 
                 // Engagements (approved scope and rules of engagement) and edits made on the Permissions tab.
                 using (var boundaries = connection.CreateCommand())
@@ -645,14 +650,6 @@ namespace ScanHarness.Services.Persistence
 
         private static DateOnly? ParseDate(string? value) =>
             DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
-
-        private static void Execute(SqliteConnection connection, string sql)
-        {
-            using var command = connection.CreateCommand();
-            // Only ever called with the fixed schema DDL in Initialize, never user input.
-            command.CommandText = sql; // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
-            command.ExecuteNonQuery();
-        }
 
         private static List<HarnessSession> ReadSessions(SqliteCommand command)
         {
