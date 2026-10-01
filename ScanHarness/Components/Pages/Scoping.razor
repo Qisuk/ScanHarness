@@ -1,0 +1,312 @@
+@page "/scoping"
+@using System.Globalization
+@using ScanHarness.Models
+@using ScanHarness.Services
+@using ScanHarness.Services.Agents
+@using ScanHarness.Services.Boundaries
+@using ScanHarness.Services.Controls
+@using ScanHarness.Services.Engagements
+@inject SessionState Session
+@inject EngagementService Engagements
+@inject AgentRunner Agents
+@inject ComponentPolicyService Policies
+@inject ControlService Controls
+@inject LogService LogService
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Scoping · ScanHarness</PageTitle>
+
+<div class="scoping-page">
+    <header class="scoping-header sh-box">
+        <h1 class="sh-box-title scoping-title">Scoping</h1>
+        <p class="scoping-intro">
+            Play the customer: tell the scoping agent who you are, which domains to test, when, and any rules.
+            It drafts a proposal, code checks it (ownership, wildcards, dates), and <strong>admin</strong> approves it.
+            Only an approved engagement can be selected on the Harness page, and scans and attacks then run only
+            against its domains, inside its window.
+        </p>
+        <div class="brain-picker" title="Placeholder sign-in: only admin can approve engagements">
+            <label for="scoping-user-select" class="brain-picker-label">User</label>
+            <select id="scoping-user-select" class="brain-select" value="@Session.CurrentUser.Name" @onchange="OnUserChanged" disabled="@busy">
+                @foreach (var user in HarnessUsers.All)
+                {
+                    <option value="@user.Name">@user.Name</option>
+                }
+            </select>
+        </div>
+    </header>
+
+    <div class="scoping-columns">
+        <section class="scoping-chat sh-box" aria-labelledby="scoping-chat-title">
+            <h2 id="scoping-chat-title" class="sh-box-title">Customer conversation</h2>
+            <span class="sh-box-aside">
+                <span class="sh-class-tag is-@AgentPolicy.Classification.Label()">@AgentLabel</span>
+            </span>
+            <div class="scoping-log" role="log" aria-live="polite" aria-label="Conversation with the scoping agent">
+                @if (conversation.Count == 0)
+                {
+                    <div class="empty-state">e.g. "We are Acme Ltd. Please test acme.test and shop.acme.test from 2026-10-01 to 2026-10-14. No testing on weekends."</div>
+                }
+                @foreach (var message in conversation)
+                {
+                    <div class="scoping-message @(message.FromCustomer ? "from-customer" : "from-agent")">
+                        <span class="scoping-who">@(message.FromCustomer ? "Customer" : "Scoping agent")</span>
+                        <span class="scoping-text">@message.Text</span>
+                    </div>
+                }
+                @if (notice != null)
+                {
+                    <div class="scoping-notice">@notice</div>
+                }
+            </div>
+            <div class="input-group">
+                <textarea id="scoping-input" class="form-control" rows="2" aria-label="Message the scoping agent"
+                          @bind="draft" @bind:event="oninput" data-send-on-enter="scoping-send"
+                          placeholder="Write as the customer..."></textarea>
+                <button id="scoping-send" class="btn btn-primary px-4" disabled="@(busy || string.IsNullOrWhiteSpace(draft))" @onclick="SendAsync">
+                    @(busy ? "Thinking..." : "Send")
+                </button>
+            </div>
+        </section>
+
+        <section class="scoping-proposal sh-box" aria-labelledby="scoping-proposal-title">
+            <h2 id="scoping-proposal-title" class="sh-box-title">Scope proposal</h2>
+            <span class="sh-box-aside">untrusted until approved</span>
+            <dl class="scoping-fields">
+                <dt>Customer</dt>
+                <dd data-field="customer">@Or(proposal.Customer)</dd>
+                <dt>Domains</dt>
+                <dd data-field="domains">
+                    @if (validation.Domains.Count == 0)
+                    {
+                        <span class="scoping-missing">none yet</span>
+                    }
+                    @foreach (var domain in validation.Domains)
+                    {
+                        <span class="scoping-domain">@domain</span>
+                    }
+                </dd>
+                <dt>Window</dt>
+                <dd data-field="window">@(proposal.WindowStart == null || proposal.WindowEnd == null ? "not agreed" : $"{Date(proposal.WindowStart)} to {Date(proposal.WindowEnd)}")</dd>
+                <dt>Rules</dt>
+                <dd data-field="rules">
+                    @if (proposal.Rules.Count == 0)
+                    {
+                        <span class="scoping-missing">none stated</span>
+                    }
+                    else
+                    {
+                        <ul>@foreach (var rule in proposal.Rules) { <li>@rule</li> }</ul>
+                    }
+                </dd>
+            </dl>
+
+            @if (validation.Excluded.Count + validation.Problems.Count + validation.Warnings.Count > 0)
+            {
+                <ul class="scoping-checks" aria-label="Checks">
+                    @foreach (var excluded in validation.Excluded) { <li class="is-excluded">Left out: @excluded</li> }
+                    @foreach (var problem in validation.Problems) { <li class="is-problem">@problem</li> }
+                    @foreach (var warning in validation.Warnings) { <li class="is-warning">@warning</li> }
+                </ul>
+            }
+
+            @if (validation.UnverifiedDomains.Count > 0)
+            {
+                <div class="scoping-verify" aria-label="Verify ownership">
+                    <div class="scoping-verify-title">Verify ownership</div>
+                    <p class="scoping-verify-help">
+                        The customer proves they own each domain by publishing this DNS TXT record on it. Simulated for the
+                        demo: the check always passes, and is logged.
+                    </p>
+                    @foreach (var domain in validation.UnverifiedDomains)
+                    {
+                        <div class="scoping-verify-row" data-domain="@domain">
+                            <span class="scoping-domain">@domain</span>
+                            <code class="scoping-record">TXT @EngagementService.OwnershipRecord(domain)</code>
+                            <button class="btn btn-outline-primary btn-sm" disabled="@busy" @onclick="() => Verify(domain)">Check record</button>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="scoping-actions">
+                <button id="scoping-submit" class="btn btn-primary btn-sm" disabled="@(busy || conversation.Count == 0 || !validation.CanSubmit)" @onclick="Submit">
+                    Submit for approval
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" disabled="@(busy || conversation.Count == 0)" @onclick="StartOver">Start over</button>
+            </div>
+        </section>
+    </div>
+
+    <section class="scoping-engagements sh-box" aria-labelledby="engagements-title">
+        <h2 id="engagements-title" class="sh-box-title">Engagements</h2>
+        <span class="sh-box-aside">@(Session.CurrentUser.IsAdmin ? "you can approve" : "switch to admin to approve")</span>
+        @if (engagements.Count == 0)
+        {
+            <div class="empty-state">No engagements yet. Agree a scope with the customer above and submit it.</div>
+        }
+        else
+        {
+            <table class="engagements-table">
+                <thead>
+                    <tr><th>Engagement</th><th>Domains</th><th>Window</th><th>Rules</th><th>Status</th><th>Proposed</th><th>Decided</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var engagement in engagements)
+                    {
+                        <tr data-engagement-id="@engagement.Id">
+                            <td class="engagement-label">@engagement.Label</td>
+                            <td>@string.Join(", ", engagement.Domains)</td>
+                            <td>@ScopeGuard.Window(engagement)</td>
+                            <td>@engagement.Rules.Count</td>
+                            <td><span class="engagement-status is-@engagement.Status.ToString().ToLowerInvariant()">@engagement.Status</span></td>
+                            <td>@engagement.ProposedBy</td>
+                            <td>@(engagement.DecidedBy ?? "")</td>
+                            <td>
+                                @if (engagement.Status == EngagementStatus.Proposed && Session.CurrentUser.IsAdmin)
+                                {
+                                    <button class="btn btn-success btn-sm" @onclick="() => Decide(engagement, true)">Approve</button>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => Decide(engagement, false)">Reject</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private readonly List<ScopingMessage> conversation = new();
+    private ScopeProposal proposal = ScopeProposal.Empty;
+    private ScopeValidation validation = new(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+    private IReadOnlyList<Engagement> engagements = Array.Empty<Engagement>();
+    private string draft = "";
+    private string? notice;
+    private bool busy;
+
+    private AgentDefinition? Agent => AgentCatalog.FirstOfKind(AgentKind.Scoping);
+
+    private ComponentPolicy AgentPolicy => Agent is { } agent
+        ? Policies.ForAgent(agent)
+        : new ComponentPolicy("agent:none", ComponentKind.Agent, "none", Classification.Internal, Sensitivity.Public, Sensitivity.Public, Trust.Untrusted, false, null, false);
+
+    private string AgentLabel => $"{AgentPolicy.Brain ?? AgentDefinition.RuleBasedBrain} · {AgentPolicy.Classification.Label()}";
+
+    protected override void OnInitialized()
+    {
+        Engagements.OnChanged += OnEngagementsChanged;
+        engagements = Engagements.All();
+    }
+
+    private async Task SendAsync()
+    {
+        var text = draft.Trim();
+        if (text.Length == 0 || busy)
+            return;
+
+        draft = "";
+        notice = null;
+
+        // The customer is untrusted input: Chat In controls check it before it reaches the agent's brain.
+        var check = Controls.Check(ControlStage.ChatIn, ChatTranscript.Targets.ScopingMessage, text, AgentPolicy.Classification);
+        ControlReporter.Report(LogService, check, AgentPolicy.Name);
+        if (check.IsBlocked)
+        {
+            notice = $"Not sent: blocked by the Chat In control '{check.Violations.First(v => v.Mode == ControlMode.Block).Name}'.";
+            return;
+        }
+
+        conversation.Add(new ScopingMessage(true, text));
+        busy = true;
+        try
+        {
+            var turn = await Agents.ContinueScopingAsync(conversation);
+            var reply = turn.Reply;
+            var replyCheck = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.ScopingMessage, reply, AgentPolicy.Classification);
+            ControlReporter.Report(LogService, replyCheck, AgentPolicy.Name);
+            conversation.Add(new ScopingMessage(false, replyCheck.IsBlocked ? "Reply withheld: blocked by a Chat Out control." : reply));
+
+            proposal = turn.Proposal;
+            validation = Engagements.Validate(proposal);
+            notice = ReadinessNote();
+            if (turn.FallbackReason != null)
+                notice = $"The agent's model couldn't answer ({turn.FallbackReason}); used the rule-based agent. {notice}".Trim();
+        }
+        catch (AgentBlockedException ex)
+        {
+            conversation.RemoveAt(conversation.Count - 1);
+            notice = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    // The agent only knows what the customer said; whether the proposal can be submitted is decided by the
+    // checks. Once the agent has the domains and dates, say so from the harness if the checks still fail.
+    private string? ReadinessNote() =>
+        !validation.CanSubmit && proposal.Domains.Count > 0 && proposal.WindowStart != null
+            ? "Not ready to submit yet: " + string.Join(" ", validation.Problems) +
+              (validation.UnverifiedDomains.Count > 0 ? " Verify ownership of the domains on the right to include them." : "")
+            : null;
+
+    // Simulates the customer's DNS record being found, then re-checks the proposal.
+    private void Verify(string domain)
+    {
+        if (Engagements.VerifyOwnership(domain) is { } verified)
+        {
+            LogService.LogUser($"Verified ownership of {verified} (simulated DNS TXT check: {EngagementService.OwnershipRecord(verified)})",
+                data: new() { ["domain"] = verified });
+        }
+
+        validation = Engagements.Validate(proposal);
+        notice = ReadinessNote();
+    }
+
+    private void Submit()
+    {
+        if (!validation.CanSubmit)
+            return;
+
+        var engagement = Engagements.Propose(proposal);
+        LogService.LogUser($"Proposed engagement {engagement.Label}: {string.Join(", ", engagement.Domains)}, {ScopeGuard.Window(engagement)}" +
+                           (engagement.Excluded.Count > 0 ? $"; left out {string.Join("; ", engagement.Excluded)}" : ""),
+            data: new() { ["engagement"] = engagement.Id });
+        StartOver();
+        notice = $"Submitted {engagement.Label} for approval.";
+    }
+
+    private void Decide(Engagement engagement, bool approve)
+    {
+        if (Engagements.Decide(engagement.Id, approve) is { } decided)
+        {
+            LogService.LogUser($"{(approve ? "Approved" : "Rejected")} engagement {decided.Label}", data: new() { ["engagement"] = decided.Id });
+        }
+    }
+
+    private void StartOver()
+    {
+        conversation.Clear();
+        proposal = ScopeProposal.Empty;
+        validation = Engagements.Validate(proposal) with { Problems = Array.Empty<string>(), Warnings = Array.Empty<string>() };
+        notice = null;
+    }
+
+    private void OnUserChanged(ChangeEventArgs e) => Session.SwitchUser(e.Value?.ToString() ?? "");
+
+    private void OnEngagementsChanged()
+    {
+        engagements = Engagements.All();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string Or(string value) => string.IsNullOrWhiteSpace(value) ? "not given" : value;
+
+    private static string Date(DateOnly? date) => date?.ToString("d MMM yyyy", CultureInfo.InvariantCulture) ?? "";
+
+    public void Dispose() => Engagements.OnChanged -= OnEngagementsChanged;
+}

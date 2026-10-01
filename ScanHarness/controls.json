@@ -1,5 +1,5 @@
 {
-  "$comment": "Guardrail controls shown on the Controls page. stage: ChatIn | ChatOut | ToolRule. defaultMode: Off | Advise | Block (used until a user changes it; ids key each user's saved setting, so keep them stable). rule.type: contains (plain text) | regex (.NET regular expression; a pattern that times out counts as a match). rule.caseSensitive defaults to false. appliesTo: Any | Internal | External (default Any) — for ChatIn the brain the message is sent to, for ChatOut the brain that wrote the output, for ToolRule the tool about to run.",
+  "$comment": "Guardrail controls shown on the Controls page. stage: ChatIn | ChatOut | ToolRule | ToolOut (a tool or agent result, before any brain sees it). defaultMode: Off | Advise | Block (used until a user changes it; ids key each user's saved setting, so keep them stable). rule.type: contains (plain text) | regex (.NET regular expression; a pattern that times out counts as a match). rule.caseSensitive defaults to false. appliesTo: Any | Internal | External (default Any) — for ChatIn the brain the message is sent to, for ChatOut the brain that wrote the output, for ToolRule the tool about to run.",
   "controls": [
     {
       "id": "chat-in-contains-badinstruction",
@@ -27,6 +27,15 @@
       "defaultMode": "Block",
       "appliesTo": "Any",
       "rule": { "type": "contains", "value": "<script>" }
+    },
+    {
+      "id": "tool-out-instruction-text",
+      "stage": "ToolOut",
+      "name": "Instructions in tool output",
+      "description": "Flags a tool or agent result containing text that tries to give the brain instructions (e.g. to disregard earlier instructions). Scanned sites control what tools return, so this keeps such text away from model brains.",
+      "defaultMode": "Block",
+      "appliesTo": "Any",
+      "rule": { "type": "regex", "value": "\\b(ignore|disregard|forget)\\b.{0,30}\\b(previous|prior|earlier|above)\\b.{0,20}\\b(instructions?|prompts?|messages?)\\b" }
     }
   ]
 }

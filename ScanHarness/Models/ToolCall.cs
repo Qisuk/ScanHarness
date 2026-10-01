@@ -94,6 +94,9 @@ namespace ScanHarness.Models
         Summary,
 
         /// <summary>A control blocked something (Advise-mode hits are logged as Warning).</summary>
-        Block
+        Block,
+
+        /// <summary>A model's reasoning ("thinking") behind a decision, summary or agent answer.</summary>
+        Reasoning
     }
 }

@@ -16,8 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Guardrail control definitions; also copied next to the app (and to projects that reference it). -->
+    <!-- Guardrail controls, tools and agents; also copied next to the app (and to projects that reference it). -->
     <Content Update="controls.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="tools.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="agents.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

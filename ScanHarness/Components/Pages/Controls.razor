@@ -5,6 +5,7 @@
 @inject SessionState Session
 @inject ControlService ControlService
 @inject LogService LogService
+@inject ScanHarness.Services.Boundaries.ComponentPolicyService Policies
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -29,6 +30,19 @@
         </div>
     </header>
 
+    <div class="controls-tabs" role="tablist">
+        <button type="button" role="tab" class="controls-tab @(tab == "controls" ? "active" : "")"
+                aria-selected="@(tab == "controls" ? "true" : "false")" @onclick='() => tab = "controls"'>Controls</button>
+        <button type="button" role="tab" class="controls-tab @(tab == "permissions" ? "active" : "")"
+                aria-selected="@(tab == "permissions" ? "true" : "false")" @onclick='() => tab = "permissions"'>Permissions</button>
+    </div>
+
+    @if (tab == "permissions")
+    {
+        <PermissionsTab />
+    }
+    else
+    {
     @foreach (var stage in Enum.GetValues<ControlStage>())
     {
         var controls = ControlCatalog.ForStage(stage).ToList();
@@ -42,7 +56,7 @@
                     Tools:
                     @foreach (var tool in ToolCatalog.All)
                     {
-                        var toolClass = ToolCatalog.ClassificationOf(tool);
+                        var toolClass = Policies.ForTool(tool).Classification;
                         <span class="controls-class-name">@tool.FunctionName</span>
                         <span class="sh-class-tag is-@toolClass.Label()">@toolClass.Label()</span>
                     }
@@ -79,16 +93,20 @@
             }
         </section>
     }
+    }
 </div>
 
 @code {
+    private string tab = "controls";
+
     protected override void OnInitialized() => ControlService.OnChanged += OnControlsChanged;
 
     private static string StageDescription(ControlStage stage) => stage switch
     {
         ControlStage.ChatIn => "Applied to your message before it is passed to the brain. Block stops it reaching the brain. Scoped by the decision brain (internal or external, shown in the brain pickers).",
         ControlStage.ChatOut => "Applied to the brain's replies and summaries. Block withholds the text (the original is kept in the log). Scoped by the brain that wrote the text.",
-        ControlStage.ToolRule => "Applied to a tool call the brain chose, before the tool is executed. Block stops the tool running. Scoped by the tool's classification.",
+        ControlStage.ToolRule => "Applied to a tool or agent call the brain chose, before it runs. Block stops it running. Scoped by the tool's classification. The engagement scope and disabled tools are also checked here, always as Block.",
+        ControlStage.ToolOut => "Applied to a tool's or agent's result before any brain reads it (a scanned site controls what the tools return). Block keeps the result away from model brains: the rule-based summary is used instead. Scoped by the brain that would read it.",
         _ => ""
     };
 
@@ -110,6 +128,30 @@
 }
 
 <style>
+    .controls-tabs {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: -0.4rem;
+    }
+
+    .controls-tab {
+        border: 1px solid var(--sh-border-strong);
+        border-radius: var(--sh-radius-sm);
+        background: var(--sh-neutral-soft);
+        padding: 0.2rem 0.9rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--sh-text-muted);
+    }
+
+        .controls-tab.active {
+            background: var(--sh-surface);
+            color: var(--sh-accent);
+            border-color: var(--sh-accent);
+        }
+
     .controls-page {
         display: flex;
         flex-direction: column;

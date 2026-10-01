@@ -64,6 +64,10 @@ namespace ScanHarness.Services
         public void LogBlock(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
             => Add(LogLevel.Block, message, toolCallId, data, brain);
 
+        /// <summary>Logs a model's reasoning ("thinking"); the full text goes in the data, linked to the tool call when there is one.</summary>
+        public void LogReasoning(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
+            => Add(LogLevel.Reasoning, message, toolCallId, data, brain);
+
         /// <summary>Logs the brain's summary of a finished action.</summary>
         public void LogSummary(string message, string? toolCallId = null, Dictionary<string, object>? data = null, string? brain = null)
             => Add(LogLevel.Summary, message, toolCallId, data, brain);

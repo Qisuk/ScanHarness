@@ -32,7 +32,7 @@ namespace ScanHarness.Services.Controls
                 var noun = Stage == ControlStage.ToolRule ? "tool" : "brain";
                 var preposition = Stage switch
                 {
-                    ControlStage.ChatIn => "to",
+                    ControlStage.ChatIn or ControlStage.ToolOut => "to",
                     ControlStage.ChatOut => "from",
                     _ => "for"
                 };

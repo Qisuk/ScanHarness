@@ -1,0 +1,207 @@
+@using ScanHarness.Services
+@using ScanHarness.Services.Agents
+@using ScanHarness.Services.Boundaries
+@inject ComponentPolicyService Policies
+@inject AgentBrainSelector BrainSelector
+@inject SessionState Session
+@inject LogService LogService
+@implements IDisposable
+
+@* Every brain, tool and agent with its trust settings. Defaults come from tools.json, agents.json and the
+   Llm config; edits are shared by everyone, saved and logged. Editable for the demo. *@
+<section class="permissions sh-box" aria-labelledby="permissions-title">
+    <h2 id="permissions-title" class="sh-box-title">Permissions</h2>
+    <span class="sh-box-aside">
+        <button type="button" class="permissions-link" disabled="@(!AnyEdited)" @onclick="ResetAll">Reset all</button>
+    </span>
+    <p class="permissions-intro">
+        <strong>Hosting</strong> is where it runs. <strong>Clearance</strong> is the most sensitive data it may receive:
+        customer-confidential data sent to something cleared only for engagement data has hostnames and emails swapped
+        for placeholders, and anything else it isn't cleared for is blocked. <strong>Output</strong> is how sensitive
+        its results are and whether they're trusted: untrusted output is shown but can't cause an action on its own.
+        Defaults come from <code>tools.json</code>, <code>agents.json</code> and the Llm config; changes here apply to
+        everyone straight away and are logged.
+    </p>
+
+    <h3 class="permissions-heading">Brains</h3>
+    <table class="permissions-table">
+        <thead>
+            <tr><th>Brain</th><th>Hosting</th><th>Clearance</th><th>Output trust</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var option in BrainSelector.Options)
+            {
+                var policy = Policies.ForBrain(option.Id, option.Id == AgentBrainSelector.KeywordBrainId ? "Keyword brain (rule-based)" : option.Id);
+                var ruleBased = ComponentPolicyService.IsRuleBased(option.Id);
+                <tr data-policy-id="@policy.Id">
+                    <td class="permissions-name">@policy.Name</td>
+                    <td>@ClassificationSelect(policy, disabled: ruleBased)</td>
+                    <td>@ClearanceSelect(policy)</td>
+                    <td>@TrustSelect(policy)</td>
+                    <td>@ResetButton(policy)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    @if (BrainSelector.LlmStatus != null)
+    {
+        <p class="permissions-note">@BrainSelector.LlmStatus Only the keyword brain is listed.</p>
+    }
+
+    <h3 class="permissions-heading">Tools</h3>
+    <table class="permissions-table">
+        <thead>
+            <tr><th>Tool</th><th>Hosting</th><th>Clearance</th><th>Output</th><th>Output trust</th><th>Enabled</th><th>Rules</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var tool in ToolCatalog.Tools)
+            {
+                var policy = Policies.ForTool(tool);
+                <tr data-policy-id="@policy.Id">
+                    <td class="permissions-name">@tool.FunctionName</td>
+                    <td>@ClassificationSelect(policy)</td>
+                    <td>@ClearanceSelect(policy)</td>
+                    <td>@LabelSelect(policy)</td>
+                    <td>@TrustSelect(policy)</td>
+                    <td>@EnabledToggle(policy)</td>
+                    <td class="permissions-rules">@Rules(tool)</td>
+                    <td>@ResetButton(policy)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h3 class="permissions-heading">Agents</h3>
+    <table class="permissions-table">
+        <thead>
+            <tr><th>Agent</th><th>Brain</th><th>Hosting</th><th>Clearance</th><th>Output trust</th><th>Enabled</th><th>Receives</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var agent in AgentCatalog.Defined)
+            {
+                var policy = Policies.ForAgent(agent);
+                <tr data-policy-id="@policy.Id">
+                    <td class="permissions-name">@agent.Name</td>
+                    <td>
+                        <select class="permissions-select" aria-label="@($"{agent.Name} brain")" value="@policy.Brain"
+                                @onchange="e => SetBrain(policy, e)">
+                            <option value="@AgentDefinition.RuleBasedBrain">rule-based</option>
+                            @foreach (var model in BrainSelector.Options.Where(o => o.IsLlm))
+                            {
+                                <option value="@model.Id">@model.Id</option>
+                            }
+                            @if (policy.Brain is { } brain && !ComponentPolicyService.IsRuleBased(brain) && BrainSelector.Options.All(o => o.Id != brain))
+                            {
+                                <option value="@brain">@brain (not served)</option>
+                            }
+                        </select>
+                    </td>
+                    <td>@ClassificationSelect(policy)</td>
+                    <td>@ClearanceSelect(policy)</td>
+                    <td>@TrustSelect(policy)</td>
+                    <td>@EnabledToggle(policy)</td>
+                    <td class="permissions-rules">@agent.InputContract@(agent.OfferedToOrchestrator ? "" : " · own page only")</td>
+                    <td>@ResetButton(policy)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+@code {
+    private bool AnyEdited =>
+        BrainSelector.Options.Any(o => Policies.ForBrain(o.Id).IsEdited)
+        || ToolCatalog.Tools.Any(t => Policies.ForTool(t).IsEdited)
+        || AgentCatalog.Defined.Any(a => Policies.ForAgent(a).IsEdited);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Policies.OnChanged += OnPoliciesChanged;
+        await BrainSelector.InitializeAsync();
+    }
+
+    private RenderFragment ClassificationSelect(ComponentPolicy policy, bool disabled = false) =>
+        EnumSelect(policy, "hosting", policy.Classification, disabled, (Classification c) => new PolicyOverride(Classification: c), c => c.Label());
+
+    private RenderFragment ClearanceSelect(ComponentPolicy policy) =>
+        EnumSelect(policy, "clearance", policy.Clearance, false, (Sensitivity s) => new PolicyOverride(Clearance: s), s => s.Label());
+
+    private RenderFragment LabelSelect(ComponentPolicy policy) =>
+        EnumSelect(policy, "output label", policy.OutputLabel, false, (Sensitivity s) => new PolicyOverride(OutputLabel: s), s => s.Label());
+
+    private RenderFragment TrustSelect(ComponentPolicy policy) =>
+        EnumSelect(policy, "output trust", policy.OutputTrust, false, (Trust t) => new PolicyOverride(OutputTrust: t), t => t.Label());
+
+    private RenderFragment EnumSelect<T>(ComponentPolicy policy, string setting, T value, bool disabled, Func<T, PolicyOverride> change, Func<T, string> label)
+        where T : struct, Enum => __builder =>
+    {
+        <select class="permissions-select is-@label(value).Replace(' ', '-')" aria-label="@($"{policy.Name} {setting}")" value="@value.ToString()" disabled="@disabled"
+                @onchange="e => Picked(policy, setting, e, change, label)">
+            @foreach (var option in Enum.GetValues<T>())
+            {
+                <option value="@option.ToString()">@label(option)</option>
+            }
+        </select>
+    };
+
+    private RenderFragment EnabledToggle(ComponentPolicy policy) => __builder =>
+    {
+        <input type="checkbox" class="form-check-input" aria-label="@($"{policy.Name} enabled")" checked="@policy.Enabled"
+               @onchange="e => SetEnabled(policy, e)" />
+    };
+
+    private RenderFragment ResetButton(ComponentPolicy policy) => __builder =>
+    {
+        @if (policy.IsEdited)
+        {
+            <button type="button" class="permissions-link" title="Back to the defaults from the definition files and config"
+                    @onclick="() => Reset(policy)">Reset</button>
+        }
+    };
+
+    private static string Rules(ToolDefinition tool) =>
+        string.Join(" · ", new[] { tool.RequiresApproval ? "needs approval" : null, tool.RequiresScope ? "needs engagement scope" : null }.OfType<string>())
+        is { Length: > 0 } rules ? rules : "none";
+
+    private void SetBrain(ComponentPolicy policy, ChangeEventArgs e)
+    {
+        var brain = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(brain))
+            Update(policy, new PolicyOverride(Brain: brain), $"brain to {brain}");
+    }
+
+    private void SetEnabled(ComponentPolicy policy, ChangeEventArgs e)
+    {
+        var enabled = e.Value is true;
+        Update(policy, new PolicyOverride(Enabled: enabled), enabled ? "enabled" : "disabled");
+    }
+
+    private void Picked<T>(ComponentPolicy policy, string setting, ChangeEventArgs e, Func<T, PolicyOverride> change, Func<T, string> label)
+        where T : struct, Enum
+    {
+        if (Enum.TryParse<T>(e.Value?.ToString(), out var picked))
+            Update(policy, change(picked), $"{setting} to {label(picked)}");
+    }
+
+    private void Update(ComponentPolicy policy, PolicyOverride change, string description)
+    {
+        Policies.Update(policy.Id, change, Session.CurrentUser.Name);
+        LogService.LogUser($"Permissions: set {policy.Name} {description}", data: new() { ["policy"] = policy.Id });
+    }
+
+    private void Reset(ComponentPolicy policy)
+    {
+        Policies.Reset(policy.Id);
+        LogService.LogUser($"Permissions: reset {policy.Name} to its defaults", data: new() { ["policy"] = policy.Id });
+    }
+
+    private void ResetAll()
+    {
+        Policies.Reset(null);
+        LogService.LogUser("Permissions: reset every brain, tool and agent to its defaults");
+    }
+
+    private void OnPoliciesChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Policies.OnChanged -= OnPoliciesChanged;
+}

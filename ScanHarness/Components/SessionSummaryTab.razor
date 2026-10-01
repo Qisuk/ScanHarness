@@ -107,6 +107,64 @@
         }
     </div>
 
+    <div class="session-shares sh-box">
+        <span class="sh-box-title">Data shared externally</span>
+        <span class="sh-box-aside">@Report.Shares.Count in this session</span>
+        @if (Report.Shares.Count == 0)
+        {
+            <div class="empty-state">Nothing was offered to an external brain, tool or agent in this session.</div>
+        }
+        else
+        {
+            <div class="session-tools-scroll">
+                <table class="table session-tools-table session-shares-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="col-number">#</th>
+                            <th class="col-time">Time</th>
+                            @if (ShowUsers)
+                            {
+                                <th class="col-user">User</th>
+                            }
+                            <th>Data</th>
+                            <th>To</th>
+                            <th>Outcome</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var share in Report.Shares)
+                        {
+                            var handoff = share.Handoff;
+                            var pill = handoff.Outcome switch
+                            {
+                                ScanHarness.Services.Boundaries.ShareOutcome.Blocked => "sh-pill-danger",
+                                ScanHarness.Services.Boundaries.ShareOutcome.Pseudonymised => "sh-pill-warning",
+                                _ => "sh-pill-info"
+                            };
+                            <tr>
+                                <td class="mono">@share.Number</td>
+                                <td class="mono">@share.Time.ToLocalTime().ToString("HH:mm:ss")</td>
+                                @if (ShowUsers)
+                                {
+                                    <td class="session-user">@(share.UserName ?? "—")</td>
+                                }
+                                <td>@handoff.What <span class="session-control-stage">(@ScanHarness.Services.Boundaries.SensitivityExtensions.Label(handoff.Label))</span></td>
+                                <td>@handoff.ToName <span class="session-control-stage">cleared for @ScanHarness.Services.Boundaries.SensitivityExtensions.Label(handoff.Clearance)</span></td>
+                                <td>
+                                    <span class="badge sh-pill @pill">@handoff.Outcome</span>
+                                    @if (handoff.Placeholders > 0)
+                                    {
+                                        <span class="session-control-stage">@handoff.Placeholders placeholder@(handoff.Placeholders == 1 ? "" : "s")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
     <div class="session-tools sh-box">
         <span class="sh-box-title">Tools called</span>
         <span class="sh-box-aside">@Report.ToolCalls.Count in this session</span>

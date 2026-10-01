@@ -1,0 +1,54 @@
+{
+  "$comment": "Tools the brains may call. Each is an HTTP endpoint on the tool API (Tools:BaseUrl) described for the brains. functionName is what LLM brains see; tool/action identify it in logs. parameters: type url | text. confirmation is shown when the tool is chosen ({name} is replaced by the parameter; confirmationWithoutOptional is used when an optional parameter is missing). http.path is relative to Tools:BaseUrl, with {name} replaced by the URL-encoded parameter. classification: Internal | External (where the tool runs). outputLabel: Public | Engagement | CustomerConfidential | Secret (how sensitive its results are). outputTrust: Trusted | Untrusted (tool output that a scanned target can influence is Untrusted). requiresScope: the url parameter must be inside the session's approved engagement scope. keywords: words the rule-based keyword brain matches for tools it has no special handling for. Agents are defined in agents.json and appear here as tools automatically.",
+  "tools": [
+    {
+      "functionName": "simple_scanner",
+      "tool": "scanner",
+      "action": "simple-scanner",
+      "description": "Scan a website URL and return the links found on it (link text and URL). Use for requests to scan, crawl, map, or list/enumerate the links on a site.",
+      "requiresApproval": false,
+      "requiresScope": true,
+      "parameters": [
+        { "name": "url", "type": "url", "description": "The target URL or domain, e.g. https://example.com or example.com.", "required": true }
+      ],
+      "confirmation": "I'll scan {url} for links using the SimpleScanner tool.",
+      "http": { "method": "GET", "path": "api/tools/simple-scanner?url={url}" },
+      "classification": "Internal",
+      "outputLabel": "CustomerConfidential",
+      "outputTrust": "Untrusted"
+    },
+    {
+      "functionName": "attack",
+      "tool": "attack",
+      "action": "execute",
+      "description": "Run a simulated attack against a website URL and report the outcome. Use only when the user explicitly asks to attack, exploit, hack or breach a site.",
+      "requiresApproval": true,
+      "requiresScope": true,
+      "parameters": [
+        { "name": "url", "type": "url", "description": "The target URL or domain, e.g. https://example.com or example.com.", "required": true }
+      ],
+      "confirmation": "This looks like an attack request. I'll run a simulated attack against {url} once you approve.",
+      "http": { "method": "POST", "path": "api/tools/attack?url={url}" },
+      "classification": "Internal",
+      "outputLabel": "CustomerConfidential",
+      "outputTrust": "Untrusted"
+    },
+    {
+      "functionName": "weather_forecast",
+      "tool": "weather",
+      "action": "forecast",
+      "description": "Get a five-day weather forecast (temperatures and a summary per day). Use for questions about the weather, forecast or temperature.",
+      "requiresApproval": false,
+      "requiresScope": false,
+      "parameters": [
+        { "name": "location", "type": "text", "description": "The place the user asked about, e.g. London. Omit it if the user didn't name one.", "required": false }
+      ],
+      "confirmation": "I'll get the weather forecast for {location}.",
+      "confirmationWithoutOptional": "I'll get the weather forecast.",
+      "http": { "method": "GET", "path": "WeatherForecast?location={location}" },
+      "classification": "External",
+      "outputLabel": "Public",
+      "outputTrust": "Untrusted"
+    }
+  ]
+}

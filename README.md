@@ -1,8 +1,10 @@
 # ScanHarness
 
 A demo of how an AI assistant calls tools. You ask the agent in plain language to scan a URL,
-run a (simulated) attack against it, or get a weather forecast; a pluggable **brain** decides
-which tool to call, attacks wait for your approval, and every call is logged and shown in the UI.
+run a (simulated) attack against it, get a weather forecast, or ask other **agents** to analyse the
+findings or estimate the cost; a pluggable **brain** decides which tool or agent to call, attacks
+wait for your approval, scans and attacks only run inside an approved engagement's scope, and
+every call is logged and shown in the UI.
 
 The tools are simulations and never touch the network: the scanner and attack return canned
 responses from `DemoToolAPI_1/dummy_responses.json`, and the weather forecast is random.
@@ -13,8 +15,8 @@ responses from `DemoToolAPI_1/dummy_responses.json`, and the weather forecast is
 | Attack (`url`) | `POST /api/tools/attack` | **yes** |
 | Weather forecast (optional `location`) | `GET /WeatherForecast` | no |
 
-Tools are defined in `ScanHarness/Services/ToolCatalog.cs`; add a tool there and in
-`ToolCallService` and every brain can use it.
+Tools are defined in `ScanHarness/tools.json` and agents in `ScanHarness/agents.json`; add one
+there and every brain can use it (see [Tools, agents and trust boundaries](#tools-agents-and-trust-boundaries)).
 
 ## Projects
 
@@ -23,13 +25,20 @@ Tools are defined in `ScanHarness/Services/ToolCatalog.cs`; add a tool there and
 | `ScanHarness` | Blazor Server UI and the agent: brains, tool calling, approval, logging. |
 | `DemoToolAPI_1` | Simulated tool API (scanner, attack, weather forecast) the harness calls. |
 | `ScanHarness.Tests` / `DemoToolAPI_1.Tests` | xUnit unit tests. |
-| `ScanHarness.UITests` | Playwright UI tests (always use the keyword brain). |
+| `ScanHarness.UITests` | Playwright UI tests (keyword brain, plus a built-in fake reasoning model; never a real LLM). |
 | `ScanHarness.Eval` | Compares brains/models on a fixed prompt set. |
+
+Design docs live in `docs/design`, for example
+[multi-agent orchestration and trust boundaries](docs/design/multi-agent-boundaries.md).
 
 ## Running
 
 1. Start the tool API: `dotnet run --project DemoToolAPI_1 --launch-profile https` (serves `https://localhost:7031`).
 2. Start the harness: `dotnet run --project ScanHarness` and open `/harness`.
+3. Before scanning or attacking, agree an engagement: on the **Scoping** page describe the customer,
+   domains and dates (e.g. *"We are Acme Ltd. Please test example.com from 2026-10-01 to 2026-12-31."*),
+   submit it, switch to **admin** and approve it, then pick it in the Harness's **Engagement** menu.
+   (Set `Engagements:EnforceScope` to `false` to skip this.)
 
 Or open `ScanHarness/ScanHarness.slnx` in Visual Studio and start both projects.
 
@@ -60,7 +69,13 @@ The **Controls** page (in the menu) lists guardrails, grouped by where they appl
 |---|---|---|
 | **Chat In** | Your message, before it's passed to the brain | It's never sent to the brain |
 | **Chat Out** | The brain's reply, each action summary and the session summary | The text is withheld (the original stays in the log data) |
-| **ToolRule** | The tool call the brain chose, before the tool runs | The tool isn't run |
+| **ToolRule** | The tool or agent call the brain chose, before it runs | It isn't run |
+| **ToolOut** | A tool's or agent's result, before any brain reads it | Model brains never see it; the rule-based summary is used |
+
+ToolRule also runs two built-in checks that are always Block: the [engagement scope](#engagements-and-scope)
+for tools that need one, and whether the tool is enabled on the [Permissions tab](#tools-agents-and-trust-boundaries).
+ToolOut exists because tool output is controlled by the target: a scanned page can contain text aimed at
+the brain. The shipped ToolOut control flags instruction-like text in results.
 
 Each control is **Off** (no action), **Advise** (an orange pip on the message and a **Warning**
 log entry) or **Block** (a red pip, a **Block** log entry, and the message is stopped as above).
@@ -88,7 +103,7 @@ is applied at its stage:
 }
 ```
 
-- **stage**: `ChatIn`, `ChatOut` or `ToolRule`. **defaultMode**: `Off`, `Advise` or `Block`, used
+- **stage**: `ChatIn`, `ChatOut`, `ToolRule` or `ToolOut`. **defaultMode**: `Off`, `Advise` or `Block`, used
   until a user changes it.
 - **rule.type**: `contains` (plain text) or `regex` (a .NET regular expression).
   **rule.caseSensitive** defaults to `false`.
@@ -105,8 +120,9 @@ is applied at its stage:
   field, an unknown stage or mode) the app won't start, and the error lists every problem.
 
 The shipped controls are Chat In *Contains "BadInstruction"* (exact text), Chat In
-*Contains "ignore previous"* (a regex, any case or spacing) and Chat Out *Contains "&lt;script&gt;"*
-(any case), all defaulting to Block and applying to any brain. There are no ToolRule controls yet.
+*Contains "ignore previous"* (a regex, any case or spacing), Chat Out *Contains "&lt;script&gt;"*
+(any case) and ToolOut *Instructions in tool output* (a regex), all defaulting to Block and applying
+to any brain. There are no configurable ToolRule controls yet (the built-in scope and enabled checks always run).
 
 The Controls page shows what each control applies to (e.g. "Applies to external brains"), and lists
 each tool's classification in the ToolRule box. Pips and log entries name the classification
@@ -121,14 +137,106 @@ Every brain and tool is classified **internal** (runs on infrastructure you cont
   loopback address (e.g. a local Ollama) and external otherwise. `Llm:Classification` sets
   all models from the endpoint, and `Llm:ModelClassifications` sets individual models by model id.
   The brain menus show each brain's classification, e.g. "qwen2.5:3b · internal".
-- **Tools**: `simple_scanner` and `attack` are internal, and `weather_forecast` is external by
-  default. Override them in `Tools:Classifications`, keyed by tool function name. The tool chip on
-  each reply shows the classification.
+- **Tools**: each tool's `classification` is set in `tools.json` (`simple_scanner` and `attack`
+  internal, `weather_forecast` external). Override them in `Tools:Classifications`, keyed by tool
+  function name. The tool chip on each reply shows the classification.
+- **Agents**: follow the brain that runs them (rule-based agents are internal).
+- Any of these can also be changed at runtime on the **Permissions** tab (below).
 
 ```json
 "Llm":   { "Classification": "External", "ModelClassifications": { "llama3.2:1b": "Internal" } },
 "Tools": { "Classifications": { "weather_forecast": "Internal" } }
 ```
+
+## Tools, agents and trust boundaries
+
+The harness follows [docs/design/multi-agent-boundaries.md](docs/design/multi-agent-boundaries.md):
+every brain, tool and agent has a trust policy, and every time data crosses from one to another it
+goes through one broker (`Services/Boundaries/BoundaryBroker.cs`), which applies the policy and
+records the handoff.
+
+### Defining tools and agents
+
+- **`ScanHarness/tools.json`**: each tool API the brains may call: its description, parameters,
+  confirmation text, HTTP method and path (relative to `Tools:BaseUrl`), whether it needs approval
+  or an engagement scope, and its classification, output label and output trust. Adding an HTTP
+  tool is a JSON edit; LLM brains are offered it straight away, and `keywords` let the keyword
+  brain choose it.
+- **`ScanHarness/agents.json`**: each agent: its kind (which fixes its input and output contract),
+  its brain (`rule-based` or an LLM model id), clearance, output trust, whether it needs approval,
+  and whether the harness's brain may call it. Agents offered to the harness appear as tools.
+
+Both files are validated at startup like `controls.json`: the app won't start with a broken file,
+and the error lists every problem.
+
+The shipped agents follow the harness's pattern: each has a rule-based implementation and can
+instead run on an LLM, falling back to the rule-based answer (and saying why) if the model fails.
+
+| Agent | Called from | Receives (built by code, never by a model) | Returns |
+|---|---|---|---|
+| **Findings analyst** (`analyse_findings`) | The harness ("analyse the findings", "recommend fixes") | The session's scan and attack results | Prioritised recommendations; a model's answer is checked against the input and anything not found there is dropped |
+| **Cost estimator** (`estimate_cost`) | The harness ("what would it cost?") | Host count and findings by severity, with no hostnames | Days and total from a fixed formula (`Agents:DayRate`); a model may only write the narrative |
+| **Scoping agent** | The **Scoping** page only | The customer conversation | A scope proposal, which code validates and admin approves |
+
+### Permissions
+
+The **Permissions** tab on the Controls page lists every brain, tool and agent with:
+
+- **Hosting**: internal or external.
+- **Clearance**: the most sensitive data it may receive (`Public` < `Engagement` <
+  `CustomerConfidential` < `Secret`). Defaults: customer confidential for internal components,
+  engagement for external ones.
+- **Output**: how sensitive its results are, and whether they're **trusted**. Model output and
+  anything a scanned target can influence are untrusted: shown, but never able to cause an action
+  on their own.
+- **Enabled** (tools and agents): a disabled one is blocked before it runs.
+- **Brain** (agents): switch an agent between rule-based and any served model.
+
+For the demo, everything on the tab is editable by any user. Edits apply to everyone immediately,
+are saved in the database and logged, and each row (or everything) can be reset to the defaults.
+
+When data reaches something not cleared for it, the broker:
+
+- **shares** it as it is when the receiver is cleared;
+- **pseudonymises** customer-confidential data for a receiver cleared for engagement data:
+  hostnames, emails and IP addresses become `HOST_1`, `EMAIL_1`, `IP_1`, and the answer is mapped
+  back before anyone sees it (for example, the summary brain or an agent running on an external model);
+- otherwise **blocks** it: the rule-based summary is used, or the agent doesn't run.
+
+### Engagements and scope
+
+Scans and attacks (tools with `requiresScope`) only run against a domain in the session's
+**engagement**, inside its testing window. No model can change that; it is checked in code.
+
+1. On the **Scoping** page, play the customer and tell the scoping agent who you are, the domains,
+   the dates and any rules. It drafts a proposal (untrusted), and code checks it: no wildcards, IP
+   addresses or private names, and each domain's ownership must be verified. Domains in
+   `Engagements:VerifiedDomains` (and their subdomains) count as verified; for any other domain the
+   page shows the DNS TXT record the customer would publish and a **Check record** button. The check
+   is simulated, like the demo tools: it always passes, and is saved and logged.
+2. **Submit for approval** records it as *Proposed*. Domains that failed a check are left out, with the reason.
+3. **admin** approves or rejects it. Approved engagements never change: a new scope is a new version.
+4. On the Harness page, pick the engagement in the **Engagement** menu. A scan or attack outside its
+   domains or window is blocked, with the reason in the chat and the log.
+
+Set `Engagements:EnforceScope` to `false` to turn the scope check off (the UI tests do).
+
+### Audit
+
+Each handoff is logged with what was offered, its label, the receiver's hosting and clearance, and
+whether it was shared, pseudonymised (with how many placeholders, never the values) or blocked.
+Blocked handoffs count as blocks for the session's colour. The session summary has a **Data shared
+externally** section listing every handoff to an external component.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Tools:BaseUrl` | `https://localhost:7031` | The tool API (DemoToolAPI_1). |
+| `Tools:DefinitionsPath` / `Agents:DefinitionsPath` | `tools.json` / `agents.json` | Definition files, relative to the content root. |
+| `Agents:MaxDepth` | `2` | How deep calls may chain. |
+| `Agents:TimeoutSeconds` | `120` | Longest an agent's model may take before the rule-based answer is used. |
+| `Agents:DayRate` / `Agents:Currency` | `1200` / `GBP` | Used by the cost estimator. |
+| `Engagements:EnforceScope` | `true` | Scans and attacks need an approved, in-window engagement. |
+| `Engagements:VerifiedDomains` | `example.com`, `example.org`, `acme.test` | Domains whose ownership counts as verified (simulated). |
 
 ## Agent brains
 
@@ -169,8 +277,27 @@ Available brains:
   Docker Model Runner or a hosted API work by changing the base URL.
 
 The model only chooses a tool and its arguments. Whether a tool needs approval comes from
-`Services/ToolCatalog.cs`, so an LLM can't skip the attack confirmation, and any URL or
+`tools.json`, so an LLM can't skip the attack confirmation, and any URL or
 location the user didn't actually type is discarded rather than acted on.
+
+### Reasoning
+
+When a brain or agent runs on a **reasoning model** (e.g. `qwen3`, `deepseek-r1`), its thinking is
+logged with the action it belongs to: the decision, any agent's work, and the summary. Providers
+return reasoning in different ways (a `reasoning_content` or `reasoning` field, or `<think>` blocks
+in the answer), and `Services/Llm/LlmReasoning.cs` gathers them into one place and removes think
+blocks from the answer itself.
+
+- **Drill down**: a reply with reasoning shows a collapsed **Reasoning (n steps)** section, and the
+  tool output pane shows the reasoning behind the selected action, step by step (stage, brain, time).
+- **Saved**: each step is a `Reasoning` log entry, linked to the request and (for summaries and
+  agents) to its tool call, so reopened sessions show it too. The activity feed shows a one-line preview.
+- **Checked**: reasoning is model output shown to users, so Chat Out controls check it; a blocked
+  step is withheld from display but kept in the log. Reasoning from an external brain given
+  placeholders has them mapped back.
+
+Models that don't reason (like `llama3.1`) produce none, so their replies have no Reasoning section.
+The scoping agent's and the admin activity summary's reasoning is logged, but only shown in the activity feed.
 
 ## Themes
 

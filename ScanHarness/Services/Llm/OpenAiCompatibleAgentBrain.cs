@@ -14,7 +14,7 @@ namespace ScanHarness.Services.Llm
     {
         private const string NoToolMessage =
             "I don't have a suitable tool for that request. I can scan a URL for links, run a simulated attack " +
-            "against a URL, or get a weather forecast.";
+            "against a URL, get a weather forecast, or ask an agent to analyse this session's findings or estimate the cost.";
 
         private const string SharedInstructions =
             "You are the decision-making brain of ScanHarness, a demo harness whose tools are simulations " +
@@ -31,6 +31,8 @@ namespace ScanHarness.Services.Llm
         private readonly OpenAiCompatibleClient _client;
         private readonly double _temperature;
         private readonly bool _allowModeFallback;
+        private readonly Classification _classification;
+        private readonly Func<Classification>? _classificationProvider;
 
         /// <param name="allowModeFallback">
         /// When true, a model the server says can't use tools is switched to <see cref="LlmDecisionMode.JsonSchema"/>
@@ -40,20 +42,23 @@ namespace ScanHarness.Services.Llm
         /// Internal or external (see <see cref="LlmOptions.ClassificationFor"/>). Defaults to external, so
         /// controls scoped to external brains still apply when nothing better is known.
         /// </param>
+        /// <param name="classificationProvider">When given, used instead of <paramref name="classification"/> on every read.</param>
         public OpenAiCompatibleAgentBrain(
             OpenAiCompatibleClient client,
             string model,
             LlmDecisionMode mode = LlmDecisionMode.Tools,
             double temperature = 0,
             bool allowModeFallback = true,
-            Classification classification = Classification.External)
+            Classification classification = Classification.External,
+            Func<Classification>? classificationProvider = null)
         {
             _client = client;
             Model = model;
             Mode = mode;
             _temperature = temperature;
             _allowModeFallback = allowModeFallback;
-            Classification = classification;
+            _classification = classification;
+            _classificationProvider = classificationProvider;
         }
 
         /// <summary>The model id sent to the endpoint.</summary>
@@ -64,7 +69,8 @@ namespace ScanHarness.Services.Llm
 
         public string Name => $"{Model} (LLM)";
 
-        public Classification Classification { get; }
+        /// <summary>Read on every use when a provider is given, so an edit on the Permissions tab applies at once.</summary>
+        public Classification Classification => _classificationProvider?.Invoke() ?? _classification;
 
         public async Task<ToolDecision> DecideAsync(string prompt)
         {
@@ -96,14 +102,19 @@ namespace ScanHarness.Services.Llm
                 return ToolDecision.Failed($"The {Model} brain couldn't make a decision: {reason}", reason);
             }
 
+            ToolDecision decision;
             try
             {
-                return Mode == LlmDecisionMode.Tools ? ParseToolCallResponse(response, text) : ParseJsonSchemaResponse(response, text);
+                decision = Mode == LlmDecisionMode.Tools ? ParseToolCallResponse(response, text) : ParseJsonSchemaResponse(response, text);
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
             {
-                return ToolDecision.Failed($"The {Model} brain returned a response I couldn't understand.", ex.Message);
+                decision = ToolDecision.Failed($"The {Model} brain returned a response I couldn't understand.", ex.Message);
             }
+
+            // Kept even when the answer couldn't be used: the reasoning often shows why.
+            decision.Reasoning = LlmReasoning.Of(response);
+            return decision;
         }
 
         /// <summary>
@@ -118,10 +129,10 @@ namespace ScanHarness.Services.Llm
                 var text = CleanSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
                 if (text.Length > 0)
                 {
-                    return new ActionSummary(text);
+                    return new ActionSummary(text, Reasoning: LlmReasoning.Of(response));
                 }
 
-                return new ActionSummary(ToolResultSummarizer.Summarize(toolCall), "the model returned an empty summary");
+                return new ActionSummary(ToolResultSummarizer.Summarize(toolCall), "the model returned an empty summary", LlmReasoning.Of(response));
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
             {
@@ -147,10 +158,10 @@ namespace ScanHarness.Services.Llm
                 var text = CleanSessionSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
                 if (text.Length > 0)
                 {
-                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords));
+                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords), Reasoning: LlmReasoning.Of(response));
                 }
 
-                return new ActionSummary(SessionReportBuilder.CombineSummaries(toolCalls), "the model returned an empty summary");
+                return new ActionSummary(SessionReportBuilder.CombineSummaries(toolCalls), "the model returned an empty summary", LlmReasoning.Of(response));
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
             {
@@ -177,10 +188,10 @@ namespace ScanHarness.Services.Llm
                 var text = CleanSessionSummary(FirstChoiceMessage(response)?["content"]?.GetValue<string>());
                 if (text.Length > 0)
                 {
-                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords));
+                    return new ActionSummary(SessionReportBuilder.LimitWords(text, SessionReportBuilder.MaxSummaryWords), Reasoning: LlmReasoning.Of(response));
                 }
 
-                return new ActionSummary(ActivitySummaryBuilder.Combine(rows, window), "the model returned an empty summary");
+                return new ActionSummary(ActivitySummaryBuilder.Combine(rows, window), "the model returned an empty summary", LlmReasoning.Of(response));
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or LlmException or JsonException or InvalidOperationException)
             {

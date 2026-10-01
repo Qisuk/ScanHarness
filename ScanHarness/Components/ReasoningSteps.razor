@@ -1,0 +1,40 @@
+@using ScanHarness.Services
+@using ScanHarness.Services.Controls
+
+@* The models' reasoning behind one action, step by step: the decision, any agent, the summary. *@
+<div class="reasoning-steps">
+    @if (Controls.Count > 0)
+    {
+        <div class="reasoning-controls">Controls on this reasoning <ControlPip Violations="Controls" /></div>
+    }
+    @foreach (var step in Steps)
+    {
+        <div class="reasoning-step" data-stage="@step.Stage">
+            <div class="reasoning-meta">
+                <span class="reasoning-stage">@step.Stage</span>
+                @if (step.Brain != null)
+                {
+                    <span class="reasoning-brain">@step.Brain</span>
+                }
+                <span class="reasoning-time">@step.Time.ToLocalTime().ToString("HH:mm:ss")</span>
+            </div>
+            @if (step.Withheld)
+            {
+                <div class="reasoning-text is-withheld">Reasoning withheld: blocked by a Chat Out control.</div>
+            }
+            else
+            {
+                <div class="reasoning-text">@step.Text</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ReasoningStep> Steps { get; set; } = Array.Empty<ReasoningStep>();
+
+    /// <summary>Chat Out controls that matched the reasoning.</summary>
+    [Parameter]
+    public IReadOnlyList<ControlViolation> Controls { get; set; } = Array.Empty<ControlViolation>();
+}

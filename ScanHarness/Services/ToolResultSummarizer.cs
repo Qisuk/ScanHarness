@@ -11,7 +11,8 @@ namespace ScanHarness.Services
     /// Set when the brain couldn't write the summary itself (e.g. the LLM was unreachable) and the
     /// rule-based summary from <see cref="ToolResultSummarizer"/> was used instead.
     /// </param>
-    public sealed record ActionSummary(string Text, string? FallbackReason = null);
+    /// <param name="Reasoning">The model's reasoning while writing the summary, when it is a reasoning model.</param>
+    public sealed record ActionSummary(string Text, string? FallbackReason = null, string? Reasoning = null);
 
     /// <summary>
     /// Builds a plain-language summary of a finished tool call from the call itself and the tool's
@@ -50,6 +51,7 @@ namespace ScanHarness.Services
                 "scanner" => $"scan {url} for links",
                 "attack" => $"run a simulated attack against {url}",
                 "weather" => location != null ? $"get the weather forecast for {location}" : "get the weather forecast",
+                ToolDefinition.AgentTool => $"ask the {AgentName(call)}",
                 _ => $"run the {call.Tool}/{call.Action} tool"
             };
         }
@@ -60,6 +62,7 @@ namespace ScanHarness.Services
             "scanner" => "scan tool",
             "attack" => "attack tool",
             "weather" => "weather tool",
+            ToolDefinition.AgentTool => AgentName(call),
             _ => $"{call.Tool} tool"
         };
 
@@ -87,6 +90,7 @@ namespace ScanHarness.Services
                     "scanner" when result is JsonObject scan => DescribeScan(scan),
                     "attack" when result is JsonObject attack => DescribeAttack(attack),
                     "weather" when result is JsonArray forecast => DescribeForecast(forecast),
+                    ToolDefinition.AgentTool when result is JsonObject agent => DescribeAgent(agent, tool),
                     _ => $"The {tool} returned: {Truncate(result.ToJsonString(), 300)}"
                 };
             }
@@ -95,6 +99,21 @@ namespace ScanHarness.Services
                 // Unexpected shape (e.g. a number where text was expected); show the raw result instead.
                 return $"The {tool} returned: {Truncate(result.ToJsonString(), 300)}";
             }
+        }
+
+        /// <summary>An agent's display name in lower case, e.g. "findings analyst".</summary>
+        public static string AgentName(ToolCall call) =>
+            (Agents.AgentCatalog.Find(call.Action)?.Name ?? call.Action).ToLowerInvariant();
+
+        // Agents return a summary built by code from their structured output.
+        private static string DescribeAgent(JsonObject agent, string name)
+        {
+            var summary = agent["summary"]?.GetValue<string>();
+            var brain = agent["brain"]?.GetValue<string>();
+            var by = string.IsNullOrWhiteSpace(brain) ? "" : $" ({brain})";
+            return string.IsNullOrWhiteSpace(summary)
+                ? $"The {name}{by} returned no summary."
+                : $"The {name}{by} reported: {EnsurePeriod(summary.Trim())}";
         }
 
         private static string DescribeScan(JsonObject scan)

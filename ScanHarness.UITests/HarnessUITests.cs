@@ -505,15 +505,17 @@ public class HarnessUITests : PageTest
 
         var nav = Page.Locator(".nav-scrollable");
         await Expect(nav.GetByRole(AriaRole.Link, new() { Name = "Controls" })).ToBeVisibleAsync();
+        await Expect(nav.GetByRole(AriaRole.Link, new() { Name = "Scoping" })).ToBeVisibleAsync();
         await Expect(nav.GetByRole(AriaRole.Link, new() { Name = "Weather" })).ToHaveCountAsync(0);
     }
 
     [Test]
-    public async Task Controls_page_lists_the_three_stages_with_block_as_the_default()
+    public async Task Controls_page_lists_the_four_stages_with_block_as_the_default()
     {
         await Page.GotoAsync(ControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
-        await Expect(Page.Locator(".controls-stage .sh-box-title")).ToHaveTextAsync(new[] { "Chat In", "Chat Out", "ToolRule" });
+        await Expect(Page.Locator(".controls-stage .sh-box-title")).ToHaveTextAsync(new[] { "Chat In", "Chat Out", "ToolRule", "ToolOut" });
+        await Expect(ControlRow("tool-out-instruction-text").Locator("input[value='Block']")).ToBeCheckedAsync();
         await Expect(ControlRow("chat-in-contains-badinstruction").Locator("input[value='Block']")).ToBeCheckedAsync();
         await Expect(ControlRow("chat-out-contains-script-tag").Locator("input[value='Block']")).ToBeCheckedAsync();
         await Expect(Page.Locator(".controls-stage").Nth(2)).ToContainTextAsync("No ToolRule controls yet");
@@ -589,9 +591,10 @@ public class HarnessUITests : PageTest
         await Expect(ControlRow("chat-out-contains-script-tag").Locator(".control-scope")).ToHaveTextAsync("Applies to all brains");
 
         var tools = Page.GetByLabel("Tool classifications");
-        await Expect(tools.Locator(".controls-class-name")).ToHaveTextAsync(new[] { "simple_scanner", "attack", "weather_forecast" });
+        // Tool APIs, then the agents offered to the orchestrator.
+        await Expect(tools.Locator(".controls-class-name")).ToHaveTextAsync(new[] { "simple_scanner", "attack", "weather_forecast", "analyse_findings", "estimate_cost" });
         // ServerFixture overrides attack to External (its default is Internal).
-        await Expect(tools.Locator(".sh-class-tag")).ToHaveTextAsync(new[] { "internal", "external", "external" });
+        await Expect(tools.Locator(".sh-class-tag")).ToHaveTextAsync(new[] { "internal", "external", "external", "internal", "internal" });
     }
 
     [Test]
@@ -610,8 +613,8 @@ public class HarnessUITests : PageTest
         await SendAndWaitAsync("scan example.com");
         await SendAndWaitAsync("what's the weather in London?");
 
-        await Expect(AgentBubbles.Nth(0).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync("internal");
-        await Expect(AgentBubbles.Nth(1).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync("external");
+        await Expect(AgentBubbles.Nth(0).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync(new[] { "internal", "untrusted output" });
+        await Expect(AgentBubbles.Nth(1).Locator(".chat-tool .sh-class-tag")).ToHaveTextAsync(new[] { "external", "untrusted output" });
     }
 
     [Test]
@@ -718,7 +721,7 @@ public class HarnessUITests : PageTest
 
         // The Controls tripped section comes before Tools called.
         var titles = await Page.Locator(".tab-panel > .sh-box > .sh-box-title").AllInnerTextsAsync();
-        Assert.That(titles.Select(t => t.ToUpperInvariant()), Is.EqualTo(new[] { "SESSION SUMMARY", "CONTROLS TRIPPED", "TOOLS CALLED" }));
+        Assert.That(titles.Select(t => t.ToUpperInvariant()), Is.EqualTo(new[] { "SESSION SUMMARY", "CONTROLS TRIPPED", "DATA SHARED EXTERNALLY", "TOOLS CALLED" }));
         await Expect(trips.Nth(0)).ToContainTextAsync("Block");
         await Expect(trips.Nth(0)).ToContainTextAsync("<script>");
 

@@ -46,6 +46,30 @@ namespace ScanHarness.Services.Persistence
 
         /// <summary>Saves a user's mode for one control.</summary>
         void SaveControlSetting(string userName, string controlId, Controls.ControlMode mode, DateTime changedAt);
+
+        /// <summary>Edits to component trust policies made on the Permissions tab, by policy id.</summary>
+        IReadOnlyDictionary<string, Boundaries.PolicyOverride> LoadComponentPolicies();
+
+        /// <summary>Saves the edit for one component (replacing any earlier one).</summary>
+        void SaveComponentPolicy(string id, Boundaries.PolicyOverride policy, string changedBy, DateTime changedAt);
+
+        /// <summary>Removes the edit for one component, or every edit when <paramref name="id"/> is null.</summary>
+        void DeleteComponentPolicies(string? id);
+
+        /// <summary>Inserts or updates an engagement.</summary>
+        void SaveEngagement(Engagement engagement);
+
+        /// <summary>Every engagement, newest first.</summary>
+        IReadOnlyList<Engagement> ListEngagements();
+
+        /// <summary>Finds an engagement by id, or null.</summary>
+        Engagement? GetEngagement(string id);
+
+        /// <summary>Domains whose ownership has been verified on the Scoping page.</summary>
+        IReadOnlyList<string> ListVerifiedDomains();
+
+        /// <summary>Records that a domain's ownership was verified, by whom and when.</summary>
+        void SaveVerifiedDomain(string domain, string verifiedBy, DateTime verifiedAt);
     }
 
     /// <summary>Settings for the activity store (config section "Persistence").</summary>

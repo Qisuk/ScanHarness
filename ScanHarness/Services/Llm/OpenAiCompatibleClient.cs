@@ -55,12 +55,17 @@ namespace ScanHarness.Services.Llm
                 .ToList() ?? new List<string>();
         }
 
-        /// <summary>Sends a chat completion request (<c>POST /chat/completions</c>) and returns the response body.</summary>
+        /// <summary>
+        /// Sends a chat completion request (<c>POST /chat/completions</c>) and returns the response body, with any
+        /// reasoning gathered into one field and think blocks removed from the answer (see <see cref="LlmReasoning"/>).
+        /// </summary>
         public async Task<JsonObject> CreateChatCompletionAsync(JsonObject request, CancellationToken cancellationToken = default)
         {
             using var content = new StringContent(request.ToJsonString(), Encoding.UTF8, "application/json");
             using var response = await _http.PostAsync("chat/completions", content, cancellationToken);
-            return await ReadSuccessBodyAsync(response, cancellationToken);
+            var body = await ReadSuccessBodyAsync(response, cancellationToken);
+            LlmReasoning.Normalise(body);
+            return body;
         }
 
         private static async Task<JsonObject> ReadSuccessBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)

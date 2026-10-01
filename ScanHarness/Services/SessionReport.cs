@@ -21,6 +21,9 @@ namespace ScanHarness.Services
     /// <param name="Message">The message that tripped it (the question, reply, summary or tool call).</param>
     public sealed record ControlTrip(int Number, DateTime Time, string? UserName, Controls.ControlViolation Violation, string Message);
 
+    /// <summary>Data offered to an external brain, tool or agent, from the handoff audit trail.</summary>
+    public sealed record ExternalShare(int Number, DateTime Time, string? UserName, Boundaries.Handoff Handoff);
+
     /// <summary>The result of summarising a whole session.</summary>
     /// <param name="ToolCalls">Every tool call in the session, built deterministically.</param>
     /// <param name="Summary">Summary of the per-action summaries, at most <see cref="SessionReportBuilder.MaxSummaryWords"/> words.</param>
@@ -28,17 +31,21 @@ namespace ScanHarness.Services
     /// <param name="FallbackReason">Set when the brain couldn't write the summary and the rule-based one was used.</param>
     /// <param name="CreatedAt">When the report was made (UTC).</param>
     /// <param name="ControlTrips">Every control that tripped in the session, built deterministically from the log.</param>
+    /// <param name="ExternalShares">Every handoff to an external component in the session, from the log.</param>
     public sealed record SessionReport(
         IReadOnlyList<ToolCallListItem> ToolCalls,
         string Summary,
         string SummaryBrain,
         string? FallbackReason,
         DateTime CreatedAt,
-        IReadOnlyList<ControlTrip>? ControlTrips = null)
+        IReadOnlyList<ControlTrip>? ControlTrips = null,
+        IReadOnlyList<ExternalShare>? ExternalShares = null)
     {
         public int SummaryWordCount => SessionReportBuilder.CountWords(Summary);
 
         public IReadOnlyList<ControlTrip> Trips => ControlTrips ?? Array.Empty<ControlTrip>();
+
+        public IReadOnlyList<ExternalShare> Shares => ExternalShares ?? Array.Empty<ExternalShare>();
     }
 
     /// <summary>
@@ -52,6 +59,24 @@ namespace ScanHarness.Services
 
         /// <summary>Message used when there is nothing to summarise.</summary>
         public const string EmptySessionSummary = "No tools have been called in this session yet.";
+
+        /// <summary>
+        /// Lists every handoff to an external brain, tool or agent in the session, in order: what was offered,
+        /// how sensitive it was, and whether it was shared as it was, with placeholders, or blocked.
+        /// </summary>
+        public static IReadOnlyList<ExternalShare> ListExternalShares(IEnumerable<LogEntry> logs)
+        {
+            var shares = new List<ExternalShare>();
+            foreach (var entry in logs.OrderBy(e => e.Timestamp))
+            {
+                if (Boundaries.Handoff.FromJson(ChatTranscript.ReadString(entry, "handoff")) is { ToClassification: Classification.External } handoff)
+                {
+                    shares.Add(new ExternalShare(shares.Count + 1, entry.Timestamp, entry.UserName, handoff));
+                }
+            }
+
+            return shares;
+        }
 
         /// <summary>
         /// Lists every control that tripped in the session, in order, with the message that tripped it.

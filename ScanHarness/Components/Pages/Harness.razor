@@ -7,6 +7,8 @@
 @inject SessionState Session
 @inject ScanHarness.Services.Persistence.IActivityStore Store
 @inject ScanHarness.Services.Controls.ControlService Controls
+@inject ScanHarness.Services.Boundaries.BoundaryBroker Broker
+@inject ScanHarness.Services.Engagements.EngagementService Engagements
 @using ScanHarness.Services.Controls
 @rendermode InteractiveServer
 @implements IDisposable
@@ -44,6 +46,18 @@
                 </select>
                 <button type="button" class="box-link" title="Start a new session" disabled="@(IsBusy || !Session.IsSaved)"
                         @onclick="StartNewSession">New</button>
+            </div>
+            <div class="brain-picker" title="@EngagementTitle">
+                <label for="engagement-select" class="brain-picker-label">Engagement</label>
+                <select id="engagement-select" class="brain-select" value="@(Engagements.Current?.Id ?? "")"
+                        @onchange="OnEngagementChanged" disabled="@IsBusy">
+                    <option value="">None</option>
+                    @foreach (var engagement in Engagements.Approved())
+                    {
+                        <option value="@engagement.Id">@engagement.Label</option>
+                    }
+                </select>
+                <a class="box-link" href="scoping" title="Agree a scope with the customer and approve engagements">Scoping</a>
             </div>
         </div>
         <div class="brain-pickers">
@@ -151,7 +165,7 @@
                         }
                         else
                         {
-                            <ToolOutputDisplay ToolCall="DisplayedToolCall" />
+                            <ToolOutputDisplay ToolCall="DisplayedToolCall" Reasoning="DisplayedTurn?.Reasoning" ReasoningControls="DisplayedTurn?.ReasoningControls ?? new()" />
                         }
                     </div>
                 </div>
@@ -232,6 +246,10 @@
     private string? selectedToolCallId;
 
     // What the tool output pane shows: the selected request's call, otherwise the latest one.
+    // The chat turn behind the displayed call, for its reasoning.
+    private ChatTurn? DisplayedTurn =>
+        DisplayedToolCall is { } shown ? transcript.FirstOrDefault(t => t.ToolCall?.Id == shown.Id) : null;
+
     private ToolCall? DisplayedToolCall =>
         (selectedToolCallId != null ? ToolCallService.GetToolCall(selectedToolCallId) : null) ?? lastToolCall;
     private bool showConfirmation = false;
@@ -383,6 +401,24 @@
 
     private void ShowLatestToolCall() => selectedToolCallId = null;
 
+    private string EngagementTitle => !Engagements.Options.EnforceScope
+        ? "Scope isn't enforced (Engagements:EnforceScope is off)"
+        : Engagements.Current is { } current
+            ? $"Scans and attacks may run against {string.Join(", ", current.Domains)}, {ScanHarness.Services.Engagements.ScopeGuard.Window(current)}"
+            : "Choose an approved engagement: scans and attacks only run against its domains";
+
+    // Scans and attacks only run against the selected engagement's domains, inside its window.
+    private void OnEngagementChanged(ChangeEventArgs e)
+    {
+        if (Engagements.Select(e.Value?.ToString()))
+        {
+            var current = Engagements.Current;
+            LogService.LogUser(current == null
+                ? "Cleared the engagement: nothing is in scope"
+                : $"Selected engagement {current.Label}: {string.Join(", ", current.Domains)}, {ScanHarness.Services.Engagements.ScopeGuard.Window(current)}");
+        }
+    }
+
     private void OnBrainChanged(ChangeEventArgs e)
     {
         if (BrainSelector.Select(e.Value?.ToString() ?? ""))
@@ -519,6 +555,9 @@
                 ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds,
             };
 
+            // A reasoning model's thinking behind the decision, logged with this request.
+            Broker.RecordReasoning(ReasoningStages.Decision, brain.Name, brain.Classification, decision.Reasoning);
+
             // Chat Out controls check the brain's reply; Block withholds it (the original stays in the log data).
             var replyCheck = Controls.Check(ControlStage.ChatOut, ChatTranscript.Targets.Reply, decision.Message, brain.Classification);
 
@@ -542,9 +581,9 @@
             LogService.LogInfo($"Agent selected tool: {decision.Tool}/{decision.Action} · {elapsed}", data: decisionData, brain: brain.Name);
             ReportControls(replyCheck, brain.Name);
 
-            // ToolRule controls run before the tool is executed; Block means it never runs.
-            var toolCheck = Controls.Check(ControlStage.ToolRule, ChatTranscript.Targets.ToolCall, DescribeToolCall(decision),
-                ToolCatalog.ClassificationOf(decision.Tool));
+            // Before the tool or agent runs: ToolRule controls, whether it's enabled, and the engagement scope.
+            // Block means it never runs.
+            var toolCheck = Broker.CheckToolIn(decision, DescribeToolCall(decision));
             ReportControls(toolCheck, brain.Name);
             if (toolCheck.IsBlocked)
                 return;
@@ -559,7 +598,7 @@
                 brain.Name
             );
 
-            await SummarizeAsync(BrainSelector.SummaryBrain, userPrompt, toolCall);
+            await SummarizeAsync(BrainSelector.SummaryBrain, BrainSelector.SummaryBrainKey, userPrompt, toolCall);
         }
         finally
         {
@@ -571,17 +610,21 @@
 
     // After every tool call (completed, failed or rejected) the summary brain (the decision brain unless
     // another is chosen) summarises what was asked and what the tool returned; the summary is shown to
-    // the user, stored on the call and logged against the summary brain.
-    private async Task SummarizeAsync(IAgentBrain brain, string userPrompt, ToolCall toolCall)
+    // the user, stored on the call and logged against the summary brain. The result is untrusted, so
+    // ToolOut controls check it first, and the broker only passes it on as the brain's clearance allows.
+    private async Task SummarizeAsync(IAgentBrain brain, string brainId, string userPrompt, ToolCall toolCall)
     {
         isSummarizing = true;
         await InvokeAsync(StateHasChanged);
+
+        var toolOut = Broker.CheckToolOut(toolCall, brain.Classification);
+        ReportControls(toolOut, brain.Name, toolCall.Id);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         ActionSummary summary;
         try
         {
-            summary = await brain.SummarizeAsync(userPrompt, toolCall);
+            summary = await Broker.SummarizeAsync(brain, brainId, userPrompt, toolCall, toolOut);
         }
         finally
         {
@@ -603,6 +646,7 @@
             data: new() { ["summary"] = summary.Text, ["elapsedMs"] = (long)stopwatch.Elapsed.TotalMilliseconds },
             brain: brain.Name);
         ReportControls(check, brain.Name, toolCall.Id);
+        Broker.RecordReasoning(ReasoningStages.Summary, brain.Name, brain.Classification, summary.Reasoning, toolCall.Id);
     }
 
     private const string WithheldSummary = "Summary withheld: blocked by a Chat Out control.";
@@ -684,10 +728,11 @@
             },
             brain: brain.Name);
         ReportControls(check, brain.Name);
+        Broker.RecordReasoning(ReasoningStages.SessionSummary, brain.Name, brain.Classification, summary.Reasoning);
 
         // Controls tripped in the session (including any on this summary), built from the log.
         var trips = SessionReportBuilder.ListControlTrips(LogService.GetLogs());
-        sessionReport = sessionReport with { ControlTrips = trips };
+        sessionReport = sessionReport with { ControlTrips = trips, ExternalShares = SessionReportBuilder.ListExternalShares(LogService.GetLogs()) };
         if (trips.Count > 0)
         {
             var tripText = string.Join("; ", trips.Select(t =>

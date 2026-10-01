@@ -15,6 +15,26 @@ namespace ScanHarness.Services
         SessionSummary
     }
 
+    /// <summary>What a model was doing when it reasoned; the "stage" of a logged reasoning entry.</summary>
+    public static class ReasoningStages
+    {
+        public const string Decision = "decision";
+        public const string Summary = "summary";
+        public const string SessionSummary = "session summary";
+        public const string ActivitySummary = "activity summary";
+        public const string Scoping = "scoping agent";
+
+        /// <summary>The stage for an agent, e.g. "agent: Findings analyst".</summary>
+        public static string Agent(string name) => $"agent: {name}";
+    }
+
+    /// <summary>A model's reasoning at one step of a turn.</summary>
+    /// <param name="Stage">What it was doing (see <see cref="ReasoningStages"/>).</param>
+    /// <param name="Brain">The brain or agent that reasoned.</param>
+    /// <param name="Text">The reasoning, shown unless <paramref name="Withheld"/>.</param>
+    /// <param name="Withheld">A Chat Out control blocked it from being shown.</param>
+    public sealed record ReasoningStep(string Stage, string? Brain, string Text, bool Withheld, DateTime Time, string? ToolCallId);
+
     /// <summary>
     /// One exchange in the chat window: the user's question and the agent's reply, with the tool call
     /// (if any) the request led to, so the reply can be selected to show that call's output.
@@ -60,8 +80,14 @@ namespace ScanHarness.Services
         /// <summary>Chat Out controls that matched the reply (or session summary), and ToolRule controls that matched its tool call.</summary>
         public List<ControlViolation> ReplyControls { get; } = new();
 
-        /// <summary>Chat Out controls that matched the tool call's summary.</summary>
+        /// <summary>ToolOut controls that matched the tool call's result, and Chat Out controls that matched its summary.</summary>
         public List<ControlViolation> SummaryControls { get; } = new();
+
+        /// <summary>The models' reasoning behind this turn: the decision, any agent, and the summary, in order.</summary>
+        public List<ReasoningStep> Reasoning { get; } = new();
+
+        /// <summary>Chat Out controls that matched the reasoning.</summary>
+        public List<ControlViolation> ReasoningControls { get; } = new();
 
         /// <summary>
         /// Everything the reply's pip reports: warnings (Advise) raised on the question it answers, then
@@ -80,7 +106,7 @@ namespace ScanHarness.Services
         public bool ToolBlocked => ReplyControls.Any(v => IsBlock(v) && v.Stage == ControlStage.ToolRule);
 
         /// <summary>A Chat Out control blocked the summary; its text is withheld.</summary>
-        public bool SummaryWithheld => SummaryControls.Any(IsBlock);
+        public bool SummaryWithheld => SummaryControls.Any(v => IsBlock(v) && v.Stage == ControlStage.ChatOut);
 
         private static bool IsBlock(ControlViolation v) => v.Mode == ControlMode.Block;
     }
@@ -134,6 +160,23 @@ namespace ScanHarness.Services
                     continue;
                 }
 
+                // Reasoning belongs to the turn it was logged in (or the session summary just made). The Scoping
+                // page's and the admin's activity summary aren't part of the chat.
+                var reasoning = ReadString(entry, "reasoning");
+                if (reasoning != null && entry.Level == LogLevel.Reasoning)
+                {
+                    var stage = ReadString(entry, "stage") ?? "";
+                    var owner = stage == ReasoningStages.SessionSummary ? turns.LastOrDefault(t => t.Kind == ChatTurnKind.SessionSummary) : current;
+                    if (stage is not (ReasoningStages.Scoping or ReasoningStages.ActivitySummary))
+                    {
+                        // "True" when logged live, "true" when read back from the store.
+                        var withheld = string.Equals(ReadString(entry, "withheld"), "true", StringComparison.OrdinalIgnoreCase);
+                        owner?.Reasoning.Add(new ReasoningStep(stage, entry.Brain, reasoning, withheld, entry.Timestamp, entry.ToolCallId));
+                    }
+
+                    continue;
+                }
+
                 // Control hits are logged right after what they checked; attach them to that part of the turn.
                 var controls = ReadString(entry, "controls");
                 if (controls != null)
@@ -184,17 +227,32 @@ namespace ScanHarness.Services
             public const string Request = "request";
             public const string Reply = "reply";
             public const string ToolCall = "tool call";
+
+            /// <summary>A tool or agent result checked by ToolOut controls before a brain reads it.</summary>
+            public const string ToolOutput = "tool output";
+
+            /// <summary>A model's reasoning, checked by Chat Out controls before it is shown.</summary>
+            public const string Reasoning = "reasoning";
             public const string Summary = "summary";
             public const string SessionSummary = "session summary";
 
             /// <summary>The admin's summary of all activity; not part of the chat, so the transcript ignores it.</summary>
             public const string ActivitySummary = "activity summary";
+
+            /// <summary>A message in the Scoping page's customer conversation; not part of the harness chat either.</summary>
+            public const string ScopingMessage = "scoping message";
         }
 
         private static void AttachControls(List<ChatTurn> turns, ChatTurn? current, string? target, IReadOnlyList<ControlViolation> violations)
         {
-            if (target == Targets.ActivitySummary)
+            if (target is Targets.ActivitySummary or Targets.ScopingMessage)
             {
+                return;
+            }
+
+            if (target == Targets.Reasoning)
+            {
+                (current ?? turns.LastOrDefault())?.ReasoningControls.AddRange(violations);
                 return;
             }
 
@@ -212,7 +270,7 @@ namespace ScanHarness.Services
             var list = target switch
             {
                 Targets.Request => current.PromptControls,
-                Targets.Summary => current.SummaryControls,
+                Targets.Summary or Targets.ToolOutput => current.SummaryControls,
                 _ => current.ReplyControls, // reply and tool call
             };
             list.AddRange(violations);

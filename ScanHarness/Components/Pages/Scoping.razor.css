@@ -1,0 +1,256 @@
+.scoping-page {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    max-width: 72rem;
+    padding-top: 0.6rem;
+}
+
+.scoping-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 0.7rem 0.6rem;
+}
+
+.scoping-title {
+    font-size: 0.78rem;
+    color: var(--sh-text);
+}
+
+.scoping-intro {
+    margin: 0;
+    color: var(--sh-text-muted);
+    font-size: 0.82rem;
+}
+
+.scoping-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 0.9rem 0.6rem;
+}
+
+.scoping-chat,
+.scoping-proposal,
+.scoping-engagements {
+    padding: 0.8rem 0.7rem 0.6rem;
+}
+
+.scoping-chat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.scoping-log {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-height: 14rem;
+    max-height: 26rem;
+    overflow-y: auto;
+}
+
+.scoping-message {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--sh-border);
+    border-radius: var(--sh-radius-sm);
+    font-size: 0.84rem;
+}
+
+    .scoping-message.from-customer {
+        align-self: flex-end;
+        background: var(--sh-accent-soft);
+    }
+
+    .scoping-message.from-agent {
+        align-self: flex-start;
+        background: var(--sh-surface-muted);
+    }
+
+.scoping-who {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--sh-text-muted);
+}
+
+.scoping-text {
+    white-space: pre-wrap;
+}
+
+.scoping-notice {
+    color: var(--sh-warning);
+    font-size: 0.8rem;
+}
+
+.scoping-fields {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.3rem 0.8rem;
+    margin: 0 0 0.5rem;
+    font-size: 0.84rem;
+}
+
+    .scoping-fields dt {
+        color: var(--sh-text-muted);
+        font-weight: 600;
+    }
+
+    .scoping-fields dd {
+        margin: 0;
+    }
+
+    .scoping-fields ul {
+        margin: 0;
+        padding-left: 1.1rem;
+    }
+
+.scoping-domain {
+    display: inline-block;
+    margin: 0 0.3rem 0.2rem 0;
+    padding: 0 0.4rem;
+    border: 1px solid var(--sh-border-strong);
+    border-radius: 999px;
+    font-family: var(--sh-font-mono);
+    font-size: 0.78rem;
+}
+
+.scoping-missing {
+    color: var(--sh-text-subtle);
+}
+
+.scoping-checks {
+    margin: 0 0 0.6rem;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+}
+
+    .scoping-checks .is-problem,
+    .scoping-checks .is-excluded {
+        color: var(--sh-danger);
+    }
+
+    .scoping-checks .is-warning {
+        color: var(--sh-warning);
+    }
+
+.scoping-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.engagements-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+    .engagements-table th {
+        text-align: left;
+        font-size: 0.7rem;
+        color: var(--sh-text-subtle);
+        border-bottom: 1px solid var(--sh-border-strong);
+        padding: 0.2rem 0.4rem;
+    }
+
+    .engagements-table td {
+        border-bottom: 1px solid var(--sh-border);
+        padding: 0.3rem 0.4rem;
+        vertical-align: middle;
+    }
+
+.engagement-label {
+    font-weight: 600;
+}
+
+.engagement-status {
+    font-weight: 600;
+}
+
+    .engagement-status.is-approved {
+        color: var(--sh-success);
+    }
+
+    .engagement-status.is-proposed {
+        color: var(--sh-warning);
+    }
+
+    .engagement-status.is-rejected {
+        color: var(--sh-danger);
+    }
+
+@media (max-width: 991.98px) {
+    .scoping-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* The user picker, matching the Controls page. */
+.scoping-header .brain-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.2rem 0.15rem 0.5rem;
+    border: 1px solid var(--sh-border-strong);
+    border-radius: var(--sh-radius-sm);
+    background: var(--sh-surface-muted);
+    white-space: nowrap;
+}
+
+.scoping-header .brain-picker-label {
+    font-weight: 600;
+    color: var(--sh-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.66rem;
+    margin: 0;
+}
+
+.scoping-header .brain-select {
+    border: 1px solid var(--sh-border);
+    border-radius: 4px;
+    background: var(--sh-surface);
+    color: var(--sh-text);
+    font-size: 0.78rem;
+    padding: 0.15rem 0.5rem;
+}
+
+/* Ownership verification for domains the checks left out. */
+.scoping-verify {
+    margin: 0 0 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px dashed var(--sh-border-strong);
+    border-radius: var(--sh-radius-sm);
+}
+
+.scoping-verify-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--sh-text-muted);
+}
+
+.scoping-verify-help {
+    margin: 0.2rem 0 0.4rem;
+    color: var(--sh-text-muted);
+    font-size: 0.78rem;
+}
+
+.scoping-verify-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+}
+
+.scoping-record {
+    font-size: 0.74rem;
+    color: var(--sh-text-muted);
+}
