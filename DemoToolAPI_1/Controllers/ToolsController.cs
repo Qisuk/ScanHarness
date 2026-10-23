@@ -12,19 +12,24 @@ namespace DemoToolAPI_1.Controllers
     public class ToolsController : ControllerBase
     {
         private readonly DummyResponseService _dummyResponseService;
+        private readonly LiveScanner _liveScanner;
 
-        public ToolsController(DummyResponseService dummyResponseService)
+        public ToolsController(DummyResponseService dummyResponseService, LiveScanner liveScanner)
         {
             _dummyResponseService = dummyResponseService;
+            _liveScanner = liveScanner;
         }
 
         /// <summary>
-        /// Scans a given URL and returns a list of all links found on the site
+        /// Scans a given URL and returns a list of all links found on the site. Returns a canned response unless
+        /// Scanner:LiveFetch is on, in which case the page is fetched through the egress proxy using the tool call's
+        /// egress token (the X-Egress-Token header).
         /// </summary>
         /// <param name="url">The URL to scan</param>
+        /// <param name="cancellationToken">Cancelled when the caller gives up</param>
         /// <returns>ScannerResponse with links found or error message</returns>
         [HttpGet("simple-scanner")]
-        public IActionResult SimpleScanner([FromQuery] string url)
+        public async Task<IActionResult> SimpleScanner([FromQuery] string url, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
@@ -33,6 +38,12 @@ namespace DemoToolAPI_1.Controllers
                     Status = "error",
                     Message = "URL parameter is required"
                 });
+            }
+
+            if (_liveScanner.Enabled)
+            {
+                var token = Request.Headers[LiveScanner.EgressTokenHeader].ToString();
+                return Ok(await _liveScanner.ScanAsync(url, string.IsNullOrEmpty(token) ? null : token, cancellationToken));
             }
 
             var response = _dummyResponseService.GetRandomScannerResponse();

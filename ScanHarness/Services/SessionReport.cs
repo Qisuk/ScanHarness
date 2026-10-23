@@ -32,6 +32,7 @@ namespace ScanHarness.Services
     /// <param name="CreatedAt">When the report was made (UTC).</param>
     /// <param name="ControlTrips">Every control that tripped in the session, built deterministically from the log.</param>
     /// <param name="ExternalShares">Every handoff to an external component in the session, from the log.</param>
+    /// <param name="NetworkConnections">Every connection the session's tools asked the egress proxy for, from the log.</param>
     public sealed record SessionReport(
         IReadOnlyList<ToolCallListItem> ToolCalls,
         string Summary,
@@ -39,14 +40,20 @@ namespace ScanHarness.Services
         string? FallbackReason,
         DateTime CreatedAt,
         IReadOnlyList<ControlTrip>? ControlTrips = null,
-        IReadOnlyList<ExternalShare>? ExternalShares = null)
+        IReadOnlyList<ExternalShare>? ExternalShares = null,
+        IReadOnlyList<NetworkConnection>? NetworkConnections = null)
     {
         public int SummaryWordCount => SessionReportBuilder.CountWords(Summary);
 
         public IReadOnlyList<ControlTrip> Trips => ControlTrips ?? Array.Empty<ControlTrip>();
 
         public IReadOnlyList<ExternalShare> Shares => ExternalShares ?? Array.Empty<ExternalShare>();
+
+        public IReadOnlyList<NetworkConnection> Connections => NetworkConnections ?? Array.Empty<NetworkConnection>();
     }
+
+    /// <summary>A connection a tool asked the egress proxy for, and whether it was allowed.</summary>
+    public sealed record NetworkConnection(int Number, DateTime Time, string? UserName, string? Tool, EgressEvent Connection);
 
     /// <summary>
     /// Deterministic parts of a session report: the tool-call list, the rule-based summary of
@@ -76,6 +83,24 @@ namespace ScanHarness.Services
             }
 
             return shares;
+        }
+
+        /// <summary>
+        /// Lists every connection the session's tools asked the egress proxy for, in order, allowed or refused.
+        /// Built from the log (each connection is logged with its tool call), so reopened sessions give the same list.
+        /// </summary>
+        public static IReadOnlyList<NetworkConnection> ListNetworkConnections(IEnumerable<LogEntry> logs)
+        {
+            var connections = new List<NetworkConnection>();
+            foreach (var entry in logs.OrderBy(e => e.Timestamp))
+            {
+                if (ToolCallService.ReadEgress(entry) is EgressEvent connection)
+                {
+                    connections.Add(new NetworkConnection(connections.Count + 1, connection.Timestamp, entry.UserName, connection.Caller, connection));
+                }
+            }
+
+            return connections;
         }
 
         /// <summary>

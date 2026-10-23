@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/.vs/
+**/logs/
+**/Data/
+**/TestResults/
+.git/

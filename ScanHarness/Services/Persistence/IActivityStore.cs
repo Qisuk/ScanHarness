@@ -70,7 +70,36 @@ namespace ScanHarness.Services.Persistence
 
         /// <summary>Records that a domain's ownership was verified, by whom and when.</summary>
         void SaveVerifiedDomain(string domain, string verifiedBy, DateTime verifiedAt);
+
+        /// <summary>Records a connection the egress proxy was asked to make, and the decision.</summary>
+        void SaveEgressEvent(EgressEvent egressEvent);
+
+        /// <summary>The connections a tool call asked for, oldest first.</summary>
+        IReadOnlyList<EgressEvent> LoadEgressEvents(string toolCallId);
+
+        /// <summary>Connections matching a filter, newest first, up to its limit.</summary>
+        IReadOnlyList<EgressEvent> QueryEgressEvents(EgressEventQuery query);
+
+        /// <summary>Adds traffic figures from the proxy's access log to the connection with this request id.</summary>
+        /// <returns>True when a recorded connection was updated.</returns>
+        bool UpdateEgressTraffic(string requestId, long? bytesSent, long? bytesReceived, long? durationMs);
     }
+
+    /// <summary>A filter over recorded egress connections; null fields don't filter.</summary>
+    /// <param name="FromUtc">Earliest time (inclusive).</param>
+    /// <param name="ToUtc">Latest time (inclusive).</param>
+    /// <param name="UserName">Only this user's tool calls.</param>
+    /// <param name="SessionId">Only this session's tool calls.</param>
+    /// <param name="Allowed">Only allowed (true) or refused (false) connections.</param>
+    /// <param name="HostContains">Only hosts containing this text.</param>
+    /// <param name="Caller">Only this caller (a tool's function name, "harness:llm" or "anonymous").</param>
+    /// <param name="Limit">At most this many, newest first.</param>
+    /// <param name="Challenges">
+    /// Token challenges (407s: a client asked without its egress token, as proxy-aware clients do before retrying with
+    /// it). False leaves them out (the default), true lists only them, null includes them.
+    /// </param>
+    public sealed record EgressEventQuery(DateTime? FromUtc = null, DateTime? ToUtc = null, string? UserName = null, string? SessionId = null,
+        bool? Allowed = null, string? HostContains = null, string? Caller = null, int Limit = 500, bool? Challenges = false);
 
     /// <summary>Settings for the activity store (config section "Persistence").</summary>
     public class PersistenceOptions

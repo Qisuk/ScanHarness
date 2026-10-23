@@ -8,7 +8,9 @@ namespace ScanHarness.Services.Controls
         /// that was checked: the chat transcript and session reports rely on that order, and the data holds
         /// the violation (with the checked text) and its target so pips and reports can be recreated.
         /// </summary>
-        public static void Report(LogService log, ControlCheck check, string brainName, string? toolCallId = null)
+        /// <param name="extraData">More data for each entry, e.g. the refused connection for an Egress block.</param>
+        public static void Report(LogService log, ControlCheck check, string? brainName, string? toolCallId = null,
+            IReadOnlyDictionary<string, object>? extraData = null)
         {
             foreach (var violation in check.Violations)
             {
@@ -18,6 +20,7 @@ namespace ScanHarness.Services.Controls
                     {
                         ChatTranscript.Targets.Request => "blocked; it was not sent to the brain",
                         ChatTranscript.Targets.ToolCall => "blocked; the tool was not run",
+                        ChatTranscript.Targets.Network => "blocked; the connection was refused",
                         _ => "blocked; it was withheld",
                     };
                 var message = $"{(violation.Mode == ControlMode.Block ? "Block" : "Warning")}: {violation.StageName} control " +
@@ -27,6 +30,10 @@ namespace ScanHarness.Services.Controls
                     ["controls"] = ControlService.ToJson(new[] { violation }),
                     ["target"] = violation.Target,
                 };
+                foreach (var (key, value) in extraData ?? new Dictionary<string, object>())
+                {
+                    data[key] = value;
+                }
 
                 if (violation.Mode == ControlMode.Block)
                     log.LogBlock(message, toolCallId, data, brainName);

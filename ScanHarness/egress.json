@@ -1,0 +1,19 @@
+{
+  "$comment": "Network egress policy, applied by the egress proxy to every connection a tool (or the harness) makes; see docs/design/egress-proxy.md. Everything is refused unless something allows it: the engagement a tool call runs under (inside its testing window), the tool's egress block in tools.json, or an Allow rule here. Deny rules always win. allowedPorts: ports a connection may use unless a tool's egress block names its own. blockNonPublicAddresses: refuse names that resolve to private, loopback, link-local (cloud metadata) or other non-public addresses, unless a cidr Allow rule covers the address. Each rule: id (stable), action (Allow | Deny), match.type (domain = the domain and its subdomains | exact = that host only | regex = the whole host, anchored with ^ and $ | cidr = the resolved address), match.value, optional appliesTo (tool function names, or harness:llm for the harness's own LLM calls; empty means everyone) and description.",
+  "allowedPorts": [ 80, 443 ],
+  "blockNonPublicAddresses": true,
+  "rules": [
+    {
+      "id": "deny-cloud-metadata",
+      "action": "Deny",
+      "description": "Cloud instance metadata services hand out credentials; nothing should reach them, even if a cidr rule would allow it.",
+      "match": { "type": "cidr", "value": "169.254.0.0/16" }
+    },
+    {
+      "id": "deny-paste-and-tunnels",
+      "action": "Deny",
+      "description": "Paste sites and tunnelling services are common exfiltration routes, so they're refused even if an engagement lists them.",
+      "match": { "type": "regex", "value": "^([a-z0-9-]+\\.)*(pastebin\\.com|transfer\\.sh|ngrok\\.io|ngrok-free\\.app|requestbin\\.net|webhook\\.site)$" }
+    }
+  ]
+}

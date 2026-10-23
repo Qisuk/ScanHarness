@@ -19,7 +19,13 @@ namespace ScanHarness.Services.Controls
         /// A tool's or agent's result, before it is passed to any brain. Tool output can be influenced by the
         /// target, so it is untrusted input. Block keeps it away from model brains: the rule-based summary is used.
         /// </summary>
-        ToolOut
+        ToolOut,
+
+        /// <summary>
+        /// A network connection a tool tried to make through the egress proxy. Its rules live in egress.json, not
+        /// controls.json, and are always Block: a refused connection is reported here so it gets a pip like any control.
+        /// </summary>
+        Egress
     }
 
     /// <summary>What a control does when it matches.</summary>
@@ -189,6 +195,10 @@ namespace ScanHarness.Services.Controls
         /// <summary>Finds a control by id, or null.</summary>
         public static ControlDefinition? Find(string id) => All.FirstOrDefault(c => c.Id == id);
 
+        /// <summary>Stages controls.json may use (Egress rules are defined in egress.json).</summary>
+        public static IReadOnlyList<ControlStage> ConfigurableStages { get; } =
+            Enum.GetValues<ControlStage>().Where(s => s != ControlStage.Egress).ToList();
+
         /// <summary>Display name of a stage, e.g. "Chat In".</summary>
         public static string StageName(ControlStage stage) => stage switch
         {
@@ -196,6 +206,7 @@ namespace ScanHarness.Services.Controls
             ControlStage.ChatOut => "Chat Out",
             ControlStage.ToolRule => "ToolRule",
             ControlStage.ToolOut => "ToolOut",
+            ControlStage.Egress => "Egress",
             _ => stage.ToString()
         };
 
@@ -258,7 +269,9 @@ namespace ScanHarness.Services.Controls
                 if (string.IsNullOrWhiteSpace(entry.Id)) errors.Add($"{label}: \"id\" is required.");
                 else if (controls.Any(c => c.Id == entry.Id) || entries.Take(i).Any(e => e.Id == entry.Id)) errors.Add($"{label}: the id is used more than once.");
                 if (string.IsNullOrWhiteSpace(entry.Name)) errors.Add($"{label}: \"name\" is required.");
-                if (entry.Stage == null) errors.Add($"{label}: \"stage\" must be one of {string.Join(", ", Enum.GetNames<ControlStage>())}.");
+                if (entry.Stage == null || entry.Stage == ControlStage.Egress)
+                    errors.Add($"{label}: \"stage\" must be one of {string.Join(", ", ConfigurableStages)}" +
+                               (entry.Stage == ControlStage.Egress ? " (network rules belong in egress.json)." : "."));
                 if (entry.DefaultMode == null) errors.Add($"{label}: \"defaultMode\" must be one of {string.Join(", ", Enum.GetNames<ControlMode>())}.");
                 var scope = ControlScope.Any;
                 if (entry.AppliesTo != null && (!Enum.TryParse(entry.AppliesTo, ignoreCase: true, out scope) || !Enum.IsDefined(scope)))

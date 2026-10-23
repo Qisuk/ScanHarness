@@ -1,5 +1,5 @@
 {
-  "$comment": "Tools the brains may call. Each is an HTTP endpoint on the tool API (Tools:BaseUrl) described for the brains. functionName is what LLM brains see; tool/action identify it in logs. parameters: type url | text. confirmation is shown when the tool is chosen ({name} is replaced by the parameter; confirmationWithoutOptional is used when an optional parameter is missing). http.path is relative to Tools:BaseUrl, with {name} replaced by the URL-encoded parameter. classification: Internal | External (where the tool runs). outputLabel: Public | Engagement | CustomerConfidential | Secret (how sensitive its results are). outputTrust: Trusted | Untrusted (tool output that a scanned target can influence is Untrusted). requiresScope: the url parameter must be inside the session's approved engagement scope. keywords: words the rule-based keyword brain matches for tools it has no special handling for. Agents are defined in agents.json and appear here as tools automatically.",
+  "$comment": "Tools the brains may call. Each is an HTTP endpoint on the tool API (Tools:BaseUrl) described for the brains. functionName is what LLM brains see; tool/action identify it in logs. parameters: type url | text. confirmation is shown when the tool is chosen ({name} is replaced by the parameter; confirmationWithoutOptional is used when an optional parameter is missing). http.path is relative to Tools:BaseUrl, with {name} replaced by the URL-encoded parameter. classification: Internal | External (where the tool runs). outputLabel: Public | Engagement | CustomerConfidential | Secret (how sensitive its results are). outputTrust: Trusted | Untrusted (tool output that a scanned target can influence is Untrusted). requiresScope: the url parameter must be inside the session's approved engagement scope. keywords: words the rule-based keyword brain matches for tools it has no special handling for. egress (optional): what the tool may reach through the egress proxy (egress.json and docs/design/egress-proxy.md): domains it may always reach (each covers its subdomains), ports (default: egress.json's allowedPorts) and engagementScope (whether it may also reach the engagement's domains; defaults to requiresScope). Without an egress block, a requiresScope tool may reach only its engagement's domains and any other tool may reach nothing. Agents are defined in agents.json and appear here as tools automatically.",
   "tools": [
     {
       "functionName": "simple_scanner",
@@ -46,6 +46,7 @@
       "confirmation": "I'll get the weather forecast for {location}.",
       "confirmationWithoutOptional": "I'll get the weather forecast.",
       "http": { "method": "GET", "path": "WeatherForecast?location={location}" },
+      "egress": { "domains": [ "api.open-meteo.com" ], "ports": [ 443 ] },
       "classification": "External",
       "outputLabel": "Public",
       "outputTrust": "Untrusted"

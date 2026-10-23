@@ -7,7 +7,8 @@ wait for your approval, scans and attacks only run inside an approved engagement
 every call is logged and shown in the UI.
 
 The tools are simulations and never touch the network: the scanner and attack return canned
-responses from `DemoToolAPI_1/dummy_responses.json`, and the weather forecast is random.
+responses from `DemoToolAPI_1/dummy_responses.json`, and the weather forecast is random. The one
+exception is the scanner's opt-in live mode, used with the [egress proxy](#network-egress-control).
 
 | Tool | API (`DemoToolAPI_1`) | Approval |
 |---|---|---|
@@ -29,7 +30,8 @@ there and every brain can use it (see [Tools, agents and trust boundaries](#tool
 | `ScanHarness.Eval` | Compares brains/models on a fixed prompt set. |
 
 Design docs live in `docs/design`, for example
-[multi-agent orchestration and trust boundaries](docs/design/multi-agent-boundaries.md).
+[multi-agent orchestration and trust boundaries](docs/design/multi-agent-boundaries.md) and
+[network egress control](docs/design/egress-proxy.md).
 
 ## Running
 
@@ -238,6 +240,72 @@ externally** section listing every handoff to an external component.
 | `Engagements:EnforceScope` | `true` | Scans and attacks need an approved, in-window engagement. |
 | `Engagements:VerifiedDomains` | `example.com`, `example.org`, `acme.test` | Domains whose ownership counts as verified (simulated). |
 
+## Network egress control
+
+The scope check above covers the URL the harness hands a tool, not what the tool then does on the
+network (follow a link off the site, obey a scanned page, phone home). The **egress proxy** closes
+that gap: every connection a tool makes goes through it, and it refuses any host the policy doesn't
+allow, whatever the tool or the model asked for. Design and threat model:
+[docs/design/egress-proxy.md](docs/design/egress-proxy.md).
+
+```
+Harness ──tool call + egress token──▶ Tool API (container, no route out)
+   ▲                                        │ every connection
+   │ "may this connect?" (POST /egress/authorize)   ▼
+   └──────────────────────────────────── Envoy egress proxy ──▶ allowed hosts only
+```
+
+- **No way around it.** Under docker-compose's `egress` profile the tool API runs on an internal Docker
+  network with no route out and no external DNS. Its only way out is the Envoy proxy (`egress/envoy.yaml`).
+- **The harness decides.** Before every connection (HTTPS `CONNECT` or plain HTTP) the proxy asks the
+  harness's policy endpoint. Anything but a yes, including the harness being unreachable, is a refusal.
+- **Per call.** Each tool API call carries a signed **egress token** (the `X-Egress-Token` header) saying
+  what that call may reach: the engagement's domains inside its testing window (for scoped tools), and the
+  tool's own `egress` list in `tools.json` (e.g. the weather tool may reach `api.open-meteo.com:443` and
+  nothing else). The tool presents it to the proxy as its proxy credential; a tool can carry it but not
+  change it.
+- **Rules.** `ScanHarness/egress.json` adds Allow and Deny rules (`domain`, `exact`, anchored `regex` or
+  `cidr`), optionally per caller. Deny always wins; the shipped rules refuse cloud metadata addresses and
+  paste/tunnel sites. The file is validated at startup like `controls.json`: unanchored regexes, unescaped
+  dots, regexes that match any host, wildcards and bad ranges all stop the app.
+- **Addresses.** The harness resolves each name and refuses it if any address is private, loopback,
+  link-local or otherwise non-public; Envoy then connects to the exact address that was checked, so a name
+  can't be re-pointed in between (DNS rebinding). IP literals need a `cidr` rule.
+- **Recorded.** Every attempt, allowed or refused, is saved (`egress_events`) and written to
+  `logs/egress-<date>.log`. Bytes and duration are added from Envoy's access log. Each tool call's
+  connections appear in its activity feed and in a **Network** section of the tool output; a refused
+  connection is an **Egress** block (red pip, counts towards the session's colour). The session summary
+  has a **Network activity** section, admin has a **Network** tab with filters, and the Controls page
+  lists the rules and what each tool may reach.
+
+### Running with the proxy
+
+```powershell
+$env:EGRESS_POLICY_KEY = "<a long random string>"      # shared by the proxy and the harness
+docker compose --profile egress up -d --build          # Envoy + the tool API in a container
+dotnet run --project ScanHarness --launch-profile egress
+./scripts/test-egress.ps1                              # checks the layout from inside the tools network
+```
+
+In the container the scanner runs in **live mode** (`Scanner__LiveFetch=true`): it fetches the page through
+the proxy, lists its links, and follows one link per host the way a crawler would, noting which ones the
+proxy refused. For example, scope `www.iana.org` on the Scoping page and scan
+`https://www.iana.org/domains/reserved`: the page is fetched, and its links to `icann.org` are refused.
+
+The `egress` launch profile points `Tools:BaseUrl` at the proxy's tool ingress (`http://localhost:7080`),
+sets `Egress:Mode` to `Enforced` and reads Envoy's access log from `egress/logs`. The policy endpoint is
+reached at `host.docker.internal:5285`, so use that profile (HTTP on 5285) rather than `https`.
+
+| Setting (section `Egress`) | Default | Meaning |
+|---|---|---|
+| `Mode` | `Off` | `Off` (no tokens; the policy endpoint answers 404), `Advisory` (checked and logged, but tools could go around the proxy) or `Enforced`. |
+| `PolicyKey` | empty | Shared secret the proxy sends with each check; at least 16 characters unless `Off`. Falls back to the `EGRESS_POLICY_KEY` environment variable. |
+| `DefinitionsPath` | `egress.json` | The egress policy file, relative to the content root. |
+| `TokenLifetimeSeconds` | `300` | How long a tool call's egress token lasts. |
+| `TokenSigningKey` | empty | Base64 key (32+ bytes) for egress tokens; empty generates one per run. |
+| `RouteLlmTraffic` / `ProxyUrl` | `false` / empty | Send the harness's own calls to a hosted (non-loopback) LLM through the proxy as caller `harness:llm` (e.g. `http://localhost:3128`). Needs an Allow rule for the provider. |
+| `AccessLogPath` | empty | Envoy's JSON access log, for traffic figures (the `egress` profile sets `../egress/logs/egress-access.log`). |
+
 ## Agent brains
 
 A brain has two jobs, each picked from its own menu at the top of the harness page:
@@ -356,6 +424,7 @@ Everything is saved to a local **SQLite** database (`ScanHarness/Data/scanharnes
 | `sessions` | Owner, start time, last activity, title |
 | `tool_calls` | Tool, action, parameters, status, the tool's full response, approval decision and who made it, error, summary, and every timestamp |
 | `log_entries` | Every activity feed entry with its user, brain and timestamp, plus structured data (the prompt, the agent's decision, summaries) |
+| `egress_events` | Every connection the egress proxy was asked to make: target, checked address, decision and reason, caller, tool call, user, and traffic figures |
 
 Together these are enough to recreate a session exactly. Calls left waiting or running when the
 app stopped are marked **interrupted** at the next start, with an entry in that session's timeline.
@@ -369,7 +438,8 @@ Every request, decision, approval, tool call and summary is recorded with the **
 shown on your requests in the activity feed, in the History tab's Brain column and in the tool
 output. Besides the database, an audit log (`logs/toolcalls-<date>.log` next to the app binaries) is
 tab-separated: `timestamp  level  session-id  user  tool-call-id  brain  message`, with `-` for
-empty columns.
+empty columns. With egress control on, `logs/egress-<date>.log` records every connection attempt:
+`timestamp  Allowed|Refused  status  caller  user  session-id  tool-call-id  method  target  upstream  rule  reason`.
 
 ### Local LLM with Docker
 
@@ -419,6 +489,8 @@ JSON file as you find prompts that trip models up.
 ```powershell
 dotnet test ScanHarness.Tests          # unit tests; LLM calls use a fake HTTP handler
 dotnet test ScanHarness.UITests        # Playwright; run `pwsh bin/Debug/net10.0/playwright.ps1 install` once
+dotnet test DemoToolAPI_1.Tests        # the tool API, including the scanner's live mode (network faked)
+./scripts/test-egress.ps1              # the egress profile's network layout (needs Docker; see above)
 ```
 
 ## CI and security testing

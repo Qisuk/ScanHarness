@@ -1,0 +1,301 @@
+@using ScanHarness.Models
+@using ScanHarness.Services
+@using ScanHarness.Services.Persistence
+@inject SessionState Session
+@inject IActivityStore Store
+
+@* Admin only: every connection the egress proxy was asked to make, by any tool or the harness itself,
+   filterable by outcome, user, caller, host and time. Selecting a row that belongs to a tool call opens its
+   session with that call's output shown. *@
+@if (!Session.CurrentUser.IsAdmin)
+{
+    <div class="empty-state">Network activity is only available to admin.</div>
+}
+else
+{
+    <div class="network-filters sh-box">
+        <span class="sh-box-title">Filters</span>
+        <button type="button" class="box-link sh-box-aside network-reset" @onclick="Reset">Reset</button>
+
+        <label class="network-filter">
+            <span>Outcome</span>
+            <select id="network-outcome" class="form-select form-select-sm" value="@outcome" @onchange="e => Set(() => outcome = e.Value?.ToString() ?? AnyOutcome)">
+                <option value="@AnyOutcome">Any</option>
+                <option value="@RefusedOutcome">Refused</option>
+                <option value="@AllowedOutcome">Allowed</option>
+                <option value="@ChallengeOutcome" title="Asked without an egress token; proxy-aware clients then retry with it">No token (challenges)</option>
+            </select>
+        </label>
+
+        <label class="network-filter">
+            <span>User</span>
+            <select id="network-user" class="form-select form-select-sm" value="@(userName ?? "")" @onchange="e => Set(() => userName = Blank(e.Value))">
+                <option value="">All users</option>
+                @foreach (var user in HarnessUsers.All)
+                {
+                    <option value="@user.Name">@user.Name</option>
+                }
+            </select>
+        </label>
+
+        <label class="network-filter">
+            <span>Caller</span>
+            <select id="network-caller" class="form-select form-select-sm" value="@(caller ?? "")" @onchange="e => Set(() => caller = Blank(e.Value))">
+                <option value="">All callers</option>
+                @foreach (var tool in ToolCatalog.Tools)
+                {
+                    <option value="@tool.FunctionName">@tool.FunctionName</option>
+                }
+                <option value="@ScanHarness.Services.Egress.EgressCallers.HarnessLlm">@ScanHarness.Services.Egress.EgressCallers.HarnessLlm</option>
+                <option value="@ScanHarness.Services.Egress.EgressCallers.Anonymous">@ScanHarness.Services.Egress.EgressCallers.Anonymous (no token)</option>
+            </select>
+        </label>
+
+        <label class="network-filter network-filter-wide">
+            <span>Host contains</span>
+            <input id="network-host" type="text" class="form-control form-control-sm" @bind="host" @bind:after="Refresh" placeholder="e.g. acme" />
+        </label>
+
+        <label class="network-filter">
+            <span>From</span>
+            <input id="network-from" type="datetime-local" class="form-control form-control-sm" @bind="from" @bind:after="Refresh" />
+        </label>
+
+        <label class="network-filter">
+            <span>To</span>
+            <input id="network-to" type="datetime-local" class="form-control form-control-sm" @bind="to" @bind:after="Refresh" />
+        </label>
+    </div>
+
+    <div class="network-results sh-box" data-testid="network-results">
+        <span class="sh-box-title">Network activity</span>
+        <span class="sh-box-aside">
+            @rows.Count connection@(rows.Count == 1 ? "" : "s")@(rows.Count == Limit ? $" (newest {Limit})" : "") ·
+            @rows.Count(r => !r.Allowed) refused ·
+            @ToolOutputDisplay.Size(rows.Sum(r => r.BytesSent ?? 0)) sent
+            <button type="button" class="box-link network-refresh" @onclick="Refresh">Refresh</button>
+        </span>
+
+        @if (rows.Count == 0)
+        {
+            <div class="empty-state">No connections match these filters.</div>
+        }
+        else
+        {
+            <div class="network-scroll">
+                <table class="table network-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="col-when">Time</th>
+                            <th class="col-outcome">Outcome</th>
+                            <th class="col-caller">Caller</th>
+                            <th>Connection</th>
+                            <th class="col-traffic">Traffic</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in rows)
+                        {
+                            var opens = row.SessionId != null;
+                            <tr class="network-row @(row.Allowed ? "" : "network-row-refused") @(opens ? "network-row-opens" : "")"
+                                tabindex="@(opens ? "0" : "-1")" title="@(opens ? "Open this tool call's session" : "Not linked to a tool call")"
+                                @onclick="() => OpenAsync(row)" @onkeydown="e => OnRowKeyDownAsync(e, row)">
+                                <td class="mono">@row.Timestamp.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                                <td><span class="network-outcome-tag">@(row.Allowed ? "Allowed" : row.Status == 407 ? "No token" : "Refused")</span></td>
+                                <td>
+                                    <div class="mono">@row.Caller</div>
+                                    <div class="network-user">@(row.UserName ?? "—")</div>
+                                </td>
+                                <td>
+                                    <div class="mono network-target">@row.Describe()</div>
+                                    <div class="network-reason">@row.Reason</div>
+                                </td>
+                                <td class="mono network-traffic">@(ToolOutputDisplay.Traffic(row) ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Raised with the session id and tool call id when a row linked to a tool call is selected.</summary>
+    [Parameter]
+    public EventCallback<(string SessionId, string? ToolCallId)> OnOpen { get; set; }
+
+    private const string AnyOutcome = "any";
+    private const string RefusedOutcome = "refused";
+    private const string AllowedOutcome = "allowed";
+    private const string ChallengeOutcome = "challenge";
+    private const int Limit = 500;
+
+    private string outcome = AnyOutcome;
+    private string? userName;
+    private string? caller;
+    private string? host;
+    private DateTime? from;
+    private DateTime? to;
+    private IReadOnlyList<EgressEvent> rows = Array.Empty<EgressEvent>();
+
+    protected override void OnInitialized() => Refresh();
+
+    private void Refresh()
+    {
+        if (!Session.CurrentUser.IsAdmin)
+            return;
+        rows = Store.QueryEgressEvents(new EgressEventQuery(
+            from?.ToUniversalTime(), to?.ToUniversalTime(), userName, null,
+            outcome switch { RefusedOutcome => false, AllowedOutcome => true, _ => null },
+            host, caller, Limit, Challenges: outcome == ChallengeOutcome));
+    }
+
+    private void Set(Action change)
+    {
+        change();
+        Refresh();
+    }
+
+    private void Reset()
+    {
+        outcome = AnyOutcome;
+        userName = caller = host = null;
+        from = to = null;
+        Refresh();
+    }
+
+    private static string? Blank(object? value) => string.IsNullOrEmpty(value?.ToString()) ? null : value.ToString();
+
+    private Task OpenAsync(EgressEvent row) =>
+        row.SessionId == null ? Task.CompletedTask : OnOpen.InvokeAsync((row.SessionId, row.ToolCallId));
+
+    private Task OnRowKeyDownAsync(KeyboardEventArgs e, EgressEvent row) =>
+        e.Key is "Enter" or " " ? OpenAsync(row) : Task.CompletedTask;
+}
+
+<style>
+    .network-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 0.5rem 0.75rem;
+        padding: 0.85rem 0.6rem 0.55rem;
+    }
+
+    .network-reset, .network-refresh {
+        cursor: pointer;
+    }
+
+    .network-refresh {
+        margin-left: 0.4rem;
+    }
+
+    .network-filter {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin: 0;
+        min-width: 8rem;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sh-text-muted);
+    }
+
+        .network-filter select,
+        .network-filter input {
+            font-size: 0.8rem;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+    .network-filter-wide {
+        flex: 1 1 12rem;
+    }
+
+    .network-results {
+        flex: 1;
+        min-height: 12rem;
+        display: flex;
+        flex-direction: column;
+        padding: 0.75rem 0.4rem 0.4rem;
+    }
+
+    .network-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .network-table {
+        font-size: 0.82rem;
+        min-width: 44rem;
+        --bs-table-bg: transparent;
+    }
+
+        .network-table thead th {
+            position: sticky;
+            top: 0;
+            background: var(--sh-surface-muted);
+            color: var(--sh-text-muted);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--sh-border);
+            padding: 0.35rem 0.6rem;
+        }
+
+        .network-table td {
+            padding: 0.35rem 0.6rem;
+            vertical-align: top;
+            border-color: var(--sh-border);
+        }
+
+        .network-table .col-when { width: 8.5rem; }
+        .network-table .col-outcome { width: 6rem; }
+        .network-table .col-caller { width: 9rem; }
+        .network-table .col-traffic { width: 13rem; }
+
+        .network-table .mono {
+            font-family: var(--sh-font-mono);
+            font-size: 0.76rem;
+        }
+
+    .network-row td:first-child {
+        border-left: 3px solid transparent;
+    }
+
+    .network-row-refused td:first-child {
+        border-left-color: #ef4444;
+    }
+
+    .network-row-refused .network-outcome-tag {
+        color: var(--sh-danger);
+        font-weight: 600;
+    }
+
+    .network-row-opens {
+        cursor: pointer;
+    }
+
+        .network-row-opens:hover td,
+        .network-row-opens:focus-visible td {
+            background: var(--sh-surface-muted);
+        }
+
+    .network-user, .network-reason {
+        color: var(--sh-text-muted);
+        font-size: 0.76rem;
+    }
+
+    .network-target {
+        overflow-wrap: anywhere;
+    }
+
+    .network-traffic {
+        color: var(--sh-text-subtle);
+    }
+</style>

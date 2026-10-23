@@ -18,6 +18,18 @@
         "environmentVariables": {
           "ASPNETCORE_ENVIRONMENT": "Development"
         }
+      },
+      "egress": {
+        "commandName": "Project",
+        "dotnetRunMessages": true,
+        "launchBrowser": true,
+        "applicationUrl": "http://localhost:5285",
+        "environmentVariables": {
+          "ASPNETCORE_ENVIRONMENT": "Development",
+          "Tools__BaseUrl": "http://localhost:7080",
+          "Egress__Mode": "Enforced",
+          "Egress__AccessLogPath": "../egress/logs/egress-access.log"
+        }
       }
     }
   }
