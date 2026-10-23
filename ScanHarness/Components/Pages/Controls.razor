@@ -6,6 +6,7 @@
 @inject ControlService ControlService
 @inject LogService LogService
 @inject ScanHarness.Services.Boundaries.ComponentPolicyService Policies
+@inject Microsoft.Extensions.Options.IOptions<ScanHarness.Services.Egress.EgressOptions> EgressSettings
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -43,7 +44,7 @@
     }
     else
     {
-    @foreach (var stage in Enum.GetValues<ControlStage>())
+    @foreach (var stage in ControlCatalog.ConfigurableStages)
     {
         var controls = ControlCatalog.ForStage(stage).ToList();
         <section class="controls-stage sh-box" aria-labelledby="stage-@stage">
@@ -93,6 +94,55 @@
             }
         </section>
     }
+
+    @* Network egress (egress.json): read-only here, because the proxy enforces it for everyone, not per user. *@
+    var egress = ScanHarness.Services.Egress.EgressCatalog.Current;
+    <section class="controls-stage sh-box" aria-labelledby="stage-Egress" data-testid="egress-controls">
+        <h2 id="stage-Egress" class="sh-box-title">Egress</h2>
+        <span class="sh-box-aside">@EgressModeLabel</span>
+        <p class="controls-stage-description">
+            Applied by the egress proxy to every network connection a tool makes. Everything is refused unless the
+            engagement the call runs under (inside its window), the tool's own list, or an Allow rule permits it; Deny
+            rules always win, and names that resolve to private or metadata addresses are refused. Always Block. Rules
+            are read from <code>egress.json</code> and apply to every user.
+        </p>
+        <div class="controls-classes" aria-label="Allowed ports">
+            Ports: @string.Join(", ", egress.AllowedPorts) ·
+            @(egress.BlockNonPublicAddresses ? "non-public addresses refused" : "non-public addresses allowed")
+        </div>
+        <div class="controls-classes" aria-label="What each tool may reach">
+            Tools:
+            @foreach (var tool in ToolCatalog.Tools)
+            {
+                var reach = tool.EffectiveEgress;
+                var parts = reach.Domains.ToList();
+                if (reach.EngagementScope)
+                    parts.Insert(0, "engagement domains");
+                <span class="controls-class-name">@tool.FunctionName</span>
+                <span class="sh-class-tag" data-egress-tool="@tool.FunctionName">@(parts.Count == 0 ? "nothing" : string.Join(", ", parts))</span>
+            }
+        </div>
+
+        @if (egress.Rules.Count == 0)
+        {
+            <div class="empty-state">No egress rules: only engagements and tools' own lists allow anything.</div>
+        }
+
+        @foreach (var rule in egress.Rules)
+        {
+            <div class="control-row" data-egress-rule-id="@rule.Id">
+                <div class="control-text">
+                    <div class="control-name">@rule.Id</div>
+                    <div class="control-description">@rule.Description</div>
+                    <div class="control-scope">
+                        @rule.Action @rule.MatchDescription ·
+                        <span class="sh-class-tag">@(rule.AppliesTo.Count == 0 ? "everyone" : string.Join(", ", rule.AppliesTo))</span>
+                    </div>
+                </div>
+                <span class="egress-action egress-action-@rule.Action.ToString().ToLowerInvariant()">@rule.Action</span>
+            </div>
+        }
+    </section>
     }
 </div>
 
@@ -108,6 +158,13 @@
         ControlStage.ToolRule => "Applied to a tool or agent call the brain chose, before it runs. Block stops it running. Scoped by the tool's classification. The engagement scope and disabled tools are also checked here, always as Block.",
         ControlStage.ToolOut => "Applied to a tool's or agent's result before any brain reads it (a scanned site controls what the tools return). Block keeps the result away from model brains: the rule-based summary is used instead. Scoped by the brain that would read it.",
         _ => ""
+    };
+
+    private string EgressModeLabel => EgressSettings.Value.Mode switch
+    {
+        ScanHarness.Services.Egress.EgressMode.Enforced => "enforced: tools' only way out is the proxy",
+        ScanHarness.Services.Egress.EgressMode.Advisory => "advisory: checked and logged, but tools could go around the proxy",
+        _ => "off: no egress proxy in use",
     };
 
     private void OnUserChanged(ChangeEventArgs e) => Session.SwitchUser(e.Value?.ToString() ?? "");
@@ -128,6 +185,26 @@
 }
 
 <style>
+    .egress-action {
+        flex: none;
+        padding: 0.2rem 0.7rem;
+        border: 1px solid var(--sh-border);
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .egress-action-deny {
+        border-color: var(--sh-danger-border);
+        background: var(--sh-danger-soft);
+        color: var(--sh-danger);
+    }
+
+    .egress-action-allow {
+        border-color: var(--sh-success-border);
+        background: var(--sh-success-soft);
+    }
+
     .controls-tabs {
         display: flex;
         gap: 0.25rem;

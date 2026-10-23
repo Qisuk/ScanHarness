@@ -29,11 +29,11 @@ namespace ScanHarness.Services.Controls
                     return Target;
                 }
 
-                var noun = Stage == ControlStage.ToolRule ? "tool" : "brain";
+                var noun = Stage is ControlStage.ToolRule or ControlStage.Egress ? "tool" : "brain";
                 var preposition = Stage switch
                 {
                     ControlStage.ChatIn or ControlStage.ToolOut => "to",
-                    ControlStage.ChatOut => "from",
+                    ControlStage.ChatOut or ControlStage.Egress => "from",
                     _ => "for"
                 };
                 var article = subject == Classification.Internal ? "an internal" : "an external";

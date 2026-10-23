@@ -131,6 +131,40 @@ namespace ScanHarness.Services.Persistence
                     boundaries.ExecuteNonQuery();
                 }
 
+                // Every connection the egress proxy was asked to make. Not tied to sessions by a foreign key: a
+                // connection without a valid egress token belongs to no session, and it must be recorded too.
+                using (var egress = connection.CreateCommand())
+                {
+                    egress.CommandText = """
+                        CREATE TABLE IF NOT EXISTS egress_events (
+                            id              TEXT PRIMARY KEY,
+                            timestamp       TEXT NOT NULL,
+                            request_id      TEXT,
+                            method          TEXT NOT NULL,
+                            target          TEXT NOT NULL,
+                            host            TEXT,
+                            port            INTEGER,
+                            upstream        TEXT,
+                            allowed         INTEGER NOT NULL,
+                            status          INTEGER NOT NULL,
+                            rule            TEXT NOT NULL,
+                            reason          TEXT NOT NULL,
+                            caller          TEXT NOT NULL,
+                            tool_call_id    TEXT,
+                            session_id      TEXT,
+                            user_name       TEXT,
+                            engagement_id   TEXT,
+                            bytes_sent      INTEGER,
+                            bytes_received  INTEGER,
+                            duration_ms     INTEGER
+                        );
+                        CREATE INDEX IF NOT EXISTS ix_egress_events_time ON egress_events(timestamp);
+                        CREATE INDEX IF NOT EXISTS ix_egress_events_tool_call ON egress_events(tool_call_id);
+                        CREATE INDEX IF NOT EXISTS ix_egress_events_request ON egress_events(request_id);
+                        """;
+                    egress.ExecuteNonQuery();
+                }
+
                 // Calls that were still waiting or running when the app stopped can never finish now. Close
                 // them out, and add an entry to each session's timeline so the recreated session shows why.
                 using var transaction = connection.BeginTransaction();
@@ -643,6 +677,145 @@ namespace ScanHarness.Services.Persistence
 
                 return engagements;
             }
+        }
+
+        public void SaveEgressEvent(EgressEvent e)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO egress_events (id, timestamp, request_id, method, target, host, port, upstream, allowed, status, rule,
+                                               reason, caller, tool_call_id, session_id, user_name, engagement_id,
+                                               bytes_sent, bytes_received, duration_ms)
+                    VALUES ($id, $timestamp, $requestId, $method, $target, $host, $port, $upstream, $allowed, $status, $rule,
+                            $reason, $caller, $toolCallId, $sessionId, $userName, $engagementId, $sent, $received, $duration)
+                    ON CONFLICT(id) DO UPDATE SET
+                        bytes_sent = excluded.bytes_sent, bytes_received = excluded.bytes_received, duration_ms = excluded.duration_ms;
+                    """;
+                command.Parameters.AddWithValue("$id", e.Id);
+                command.Parameters.AddWithValue("$timestamp", Format(e.Timestamp));
+                command.Parameters.AddWithValue("$requestId", DbValue(e.RequestId));
+                command.Parameters.AddWithValue("$method", e.Method);
+                command.Parameters.AddWithValue("$target", e.Target);
+                command.Parameters.AddWithValue("$host", DbValue(e.Host));
+                command.Parameters.AddWithValue("$port", (object?)e.Port ?? DBNull.Value);
+                command.Parameters.AddWithValue("$upstream", DbValue(e.Upstream));
+                command.Parameters.AddWithValue("$allowed", e.Allowed ? 1 : 0);
+                command.Parameters.AddWithValue("$status", e.Status);
+                command.Parameters.AddWithValue("$rule", e.Rule);
+                command.Parameters.AddWithValue("$reason", e.Reason);
+                command.Parameters.AddWithValue("$caller", e.Caller);
+                command.Parameters.AddWithValue("$toolCallId", DbValue(e.ToolCallId));
+                command.Parameters.AddWithValue("$sessionId", DbValue(e.SessionId));
+                command.Parameters.AddWithValue("$userName", DbValue(e.UserName));
+                command.Parameters.AddWithValue("$engagementId", DbValue(e.EngagementId));
+                command.Parameters.AddWithValue("$sent", (object?)e.BytesSent ?? DBNull.Value);
+                command.Parameters.AddWithValue("$received", (object?)e.BytesReceived ?? DBNull.Value);
+                command.Parameters.AddWithValue("$duration", (object?)e.DurationMs ?? DBNull.Value);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public IReadOnlyList<EgressEvent> LoadEgressEvents(string toolCallId)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = $"SELECT {EgressColumns} FROM egress_events WHERE tool_call_id = $toolCallId ORDER BY timestamp, rowid;";
+                command.Parameters.AddWithValue("$toolCallId", toolCallId);
+                return ReadEgressEvents(command);
+            }
+        }
+
+        public IReadOnlyList<EgressEvent> QueryEgressEvents(EgressEventQuery query)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = $"""
+                    SELECT {EgressColumns} FROM egress_events
+                    WHERE ($from IS NULL OR timestamp >= $from) AND ($to IS NULL OR timestamp <= $to)
+                      AND ($user IS NULL OR user_name = $user) AND ($session IS NULL OR session_id = $session)
+                      AND ($allowed IS NULL OR allowed = $allowed) AND ($caller IS NULL OR caller = $caller)
+                      AND ($host IS NULL OR instr(lower(coalesce(host, target)), lower($host)) > 0)
+                      AND ($challenges IS NULL OR (status = 407) = $challenges)
+                    ORDER BY timestamp DESC, rowid DESC
+                    LIMIT $limit;
+                    """;
+                command.Parameters.AddWithValue("$from", DbValue(query.FromUtc));
+                command.Parameters.AddWithValue("$to", DbValue(query.ToUtc));
+                command.Parameters.AddWithValue("$user", DbValue(query.UserName));
+                command.Parameters.AddWithValue("$session", DbValue(query.SessionId));
+                command.Parameters.AddWithValue("$allowed", query.Allowed is bool allowed ? (allowed ? 1 : 0) : DBNull.Value);
+                command.Parameters.AddWithValue("$caller", DbValue(query.Caller));
+                command.Parameters.AddWithValue("$host", DbValue(string.IsNullOrWhiteSpace(query.HostContains) ? null : query.HostContains.Trim()));
+                command.Parameters.AddWithValue("$limit", Math.Max(1, query.Limit));
+                command.Parameters.AddWithValue("$challenges", query.Challenges is bool challenges ? (challenges ? 1 : 0) : DBNull.Value);
+                return ReadEgressEvents(command);
+            }
+        }
+
+        public bool UpdateEgressTraffic(string requestId, long? bytesSent, long? bytesReceived, long? durationMs)
+        {
+            lock (_gate)
+            {
+                using var connection = Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    UPDATE egress_events SET bytes_sent = $sent, bytes_received = $received, duration_ms = $duration
+                    WHERE request_id = $requestId;
+                    """;
+                command.Parameters.AddWithValue("$requestId", requestId);
+                command.Parameters.AddWithValue("$sent", (object?)bytesSent ?? DBNull.Value);
+                command.Parameters.AddWithValue("$received", (object?)bytesReceived ?? DBNull.Value);
+                command.Parameters.AddWithValue("$duration", (object?)durationMs ?? DBNull.Value);
+                return command.ExecuteNonQuery() > 0;
+            }
+        }
+
+        private const string EgressColumns = """
+            id, timestamp, request_id, method, target, host, port, upstream, allowed, status, rule, reason, caller,
+            tool_call_id, session_id, user_name, engagement_id, bytes_sent, bytes_received, duration_ms
+            """;
+
+        private static List<EgressEvent> ReadEgressEvents(SqliteCommand command)
+        {
+            static long? Long(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt64(i);
+
+            var events = new List<EgressEvent>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                events.Add(new EgressEvent
+                {
+                    Id = reader.GetString(0),
+                    Timestamp = Parse(reader.GetString(1)),
+                    RequestId = GetNullableString(reader, 2),
+                    Method = reader.GetString(3),
+                    Target = reader.GetString(4),
+                    Host = GetNullableString(reader, 5),
+                    Port = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    Upstream = GetNullableString(reader, 7),
+                    Allowed = reader.GetInt32(8) != 0,
+                    Status = reader.GetInt32(9),
+                    Rule = reader.GetString(10),
+                    Reason = reader.GetString(11),
+                    Caller = reader.GetString(12),
+                    ToolCallId = GetNullableString(reader, 13),
+                    SessionId = GetNullableString(reader, 14),
+                    UserName = GetNullableString(reader, 15),
+                    EngagementId = GetNullableString(reader, 16),
+                    BytesSent = Long(reader, 17),
+                    BytesReceived = Long(reader, 18),
+                    DurationMs = Long(reader, 19),
+                });
+            }
+
+            return events;
         }
 
         private static T? ParseEnum<T>(string? value) where T : struct, Enum =>

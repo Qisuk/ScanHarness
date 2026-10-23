@@ -510,11 +510,11 @@ public class HarnessUITests : PageTest
     }
 
     [Test]
-    public async Task Controls_page_lists_the_four_stages_with_block_as_the_default()
+    public async Task Controls_page_lists_the_stages_with_block_as_the_default()
     {
         await Page.GotoAsync(ControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
-        await Expect(Page.Locator(".controls-stage .sh-box-title")).ToHaveTextAsync(new[] { "Chat In", "Chat Out", "ToolRule", "ToolOut" });
+        await Expect(Page.Locator(".controls-stage .sh-box-title")).ToHaveTextAsync(new[] { "Chat In", "Chat Out", "ToolRule", "ToolOut", "Egress" });
         await Expect(ControlRow("tool-out-instruction-text").Locator("input[value='Block']")).ToBeCheckedAsync();
         await Expect(ControlRow("chat-in-contains-badinstruction").Locator("input[value='Block']")).ToBeCheckedAsync();
         await Expect(ControlRow("chat-out-contains-script-tag").Locator("input[value='Block']")).ToBeCheckedAsync();

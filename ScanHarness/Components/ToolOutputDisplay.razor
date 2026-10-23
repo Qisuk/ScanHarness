@@ -68,6 +68,29 @@
             </div>
         }
     </div>
+
+    @if (Network is { Count: > 0 })
+    {
+        var refused = Network.Count(n => !n.Allowed);
+        <div class="sh-box output-network" data-testid="network-connections">
+            <span class="sh-box-title">Network</span>
+            <span class="sh-box-aside">@Network.Count @(Network.Count == 1 ? "connection" : "connections")@(refused > 0 ? $" · {refused} refused" : "")</span>
+            <ul class="network-list">
+                @foreach (var connection in Network)
+                {
+                    <li class="network-item @(connection.Allowed ? "network-allowed" : "network-refused")">
+                        <span class="network-outcome">@(connection.Allowed ? "Allowed" : "Refused")</span>
+                        <span class="network-target">@connection.Describe()</span>
+                        @if (Traffic(connection) is string traffic)
+                        {
+                            <span class="network-traffic">@traffic</span>
+                        }
+                        <span class="network-reason">@connection.Reason</span>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
 </div>
 
 @code {
@@ -81,8 +104,30 @@
     [Parameter]
     public IReadOnlyList<ScanHarness.Services.Controls.ControlViolation> ReasoningControls { get; set; } = Array.Empty<ScanHarness.Services.Controls.ControlViolation>();
 
+    /// <summary>Connections the tool made through the egress proxy, oldest first (none when egress control is off).</summary>
+    [Parameter]
+    public IReadOnlyList<EgressEvent>? Network { get; set; }
+
     // Pretty-print the result when it is valid JSON; otherwise show it as-is.
     private string FormatResult() => JsonFormatter.Pretty(ToolCall.Result);
+
+    // e.g. "536 B sent · 5.6 KB received · 1.0 s", once the proxy's access log has reported the connection.
+    internal static string? Traffic(EgressEvent connection)
+    {
+        if (connection.BytesSent == null && connection.BytesReceived == null)
+            return null;
+        var parts = new List<string> { $"{Size(connection.BytesSent ?? 0)} sent", $"{Size(connection.BytesReceived ?? 0)} received" };
+        if (connection.DurationMs is long ms)
+            parts.Add($"{ms / 1000.0:0.0} s");
+        return string.Join(" · ", parts);
+    }
+
+    internal static string Size(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.0} KB",
+        _ => $"{bytes / (1024.0 * 1024):0.0} MB",
+    };
 }
 
 <style>
@@ -185,5 +230,55 @@
         max-height: 320px;
         border: none;
         padding: 0.3rem;
+    }
+
+    .network-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-size: 0.8rem;
+    }
+
+    .network-item {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.2rem 0.6rem;
+        padding: 0.3rem 0.5rem;
+        border-left: 3px solid var(--sh-success-border);
+        border-radius: var(--sh-radius-sm);
+    }
+
+        .network-item.network-refused {
+            border-left-color: var(--sh-danger-border);
+            background: var(--sh-danger-soft);
+        }
+
+    .network-outcome {
+        font-weight: 600;
+        min-width: 4.5rem;
+    }
+
+    .network-refused .network-outcome {
+        color: var(--sh-danger);
+    }
+
+    .network-target {
+        font-family: var(--sh-font-mono);
+        overflow-wrap: anywhere;
+    }
+
+    .network-traffic {
+        color: var(--sh-text-subtle);
+        font-family: var(--sh-font-mono);
+        font-size: 0.72rem;
+    }
+
+    .network-reason {
+        flex-basis: 100%;
+        color: var(--sh-text-muted);
     }
 </style>

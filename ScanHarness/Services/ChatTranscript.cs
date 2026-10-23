@@ -228,6 +228,9 @@ namespace ScanHarness.Services
             public const string Reply = "reply";
             public const string ToolCall = "tool call";
 
+            /// <summary>A network connection a tool tried to make, checked by the egress proxy's policy.</summary>
+            public const string Network = "network connection";
+
             /// <summary>A tool or agent result checked by ToolOut controls before a brain reads it.</summary>
             public const string ToolOutput = "tool output";
 

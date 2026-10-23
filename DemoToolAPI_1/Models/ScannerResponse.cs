@@ -35,5 +35,12 @@ namespace DemoToolAPI_1.Models
         /// The URL of the link
         /// </summary>
         public string Url { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Live mode only: what happened when the scanner followed the link, e.g. "reachable (200)" or
+        /// "refused by the egress proxy". Left out of canned responses.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public string? Note { get; set; }
     }
 }

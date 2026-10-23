@@ -8,8 +8,59 @@
 #
 # If Ollama is also installed natively it already uses port 11434; run this one on another port
 # with  $env:OLLAMA_PORT=11435; docker compose up -d  and point Llm:BaseUrl at it.
+#
+# Network egress control (docs/design/egress-proxy.md) runs under the "egress" profile:
+#
+#   $env:EGRESS_POLICY_KEY = "<a long random string>"   # the same value as the harness's Egress:PolicyKey
+#   docker compose --profile egress up -d --build
+#   dotnet run --project ScanHarness --launch-profile egress
+#
+# The tool API then runs in a container on the internal "tools" network, which has no route out and no external
+# DNS. Its only way out is the Envoy egress proxy, which asks the harness before every connection.
+
+networks:
+  # No default gateway: containers here can reach each other, and nothing else.
+  tools:
+    internal: true
+  # The egress proxy's way out (and the published ports the harness on the host uses).
+  egress: {}
 
 services:
+  egress-proxy:
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.35.3}
+    container_name: scanharness-egress-proxy
+    profiles: [egress]
+    volumes:
+      - ./egress/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      # JSON access logs (connection sizes and durations), read by the harness when Egress:AccessLogPath is set.
+      - ./egress/logs:/var/log/envoy
+    environment:
+      - EGRESS_POLICY_KEY=${EGRESS_POLICY_KEY:-}
+    extra_hosts:
+      # The harness's policy endpoint runs on the host (Docker Desktop provides this name; Linux needs the mapping).
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Loopback only: the harness reaches the tool API through 7080, and (optionally) sends LLM traffic via 3128.
+      - "127.0.0.1:${TOOL_INGRESS_PORT:-7080}:7080"
+      - "127.0.0.1:${EGRESS_PROXY_PORT:-3128}:3128"
+    networks: [tools, egress]
+    restart: unless-stopped
+
+  tool-api:
+    build:
+      context: .
+      dockerfile: DemoToolAPI_1/Dockerfile
+    container_name: scanharness-tool-api
+    profiles: [egress]
+    environment:
+      - HTTP_PROXY=http://egress-proxy:3128
+      - HTTPS_PROXY=http://egress-proxy:3128
+      - NO_PROXY=
+      # The scanner fetches pages for real here, so there's traffic for the proxy to control.
+      - Scanner__LiveFetch=true
+    networks: [tools]
+    restart: unless-stopped
+
   ollama:
     # Pinned so a new Ollama release can't change model behaviour mid-comparison.
     image: ollama/ollama:${OLLAMA_VERSION:-0.34.4}

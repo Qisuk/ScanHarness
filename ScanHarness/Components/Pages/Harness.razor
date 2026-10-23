@@ -99,6 +99,8 @@
             {
                 <button type="button" role="tab" class="box-tab @(activeTab == "activity" ? "active" : "")"
                         aria-selected="@(activeTab == "activity" ? "true" : "false")" @onclick='() => activeTab = "activity"'>All activity</button>
+                <button type="button" role="tab" class="box-tab @(activeTab == "network" ? "active" : "")"
+                        aria-selected="@(activeTab == "network" ? "true" : "false")" @onclick='() => activeTab = "network"'>Network</button>
             }
 
             <button type="button" class="btn btn-sm btn-outline-secondary box-tabs-action"
@@ -165,7 +167,7 @@
                         }
                         else
                         {
-                            <ToolOutputDisplay ToolCall="DisplayedToolCall" Reasoning="DisplayedTurn?.Reasoning" ReasoningControls="DisplayedTurn?.ReasoningControls ?? new()" />
+                            <ToolOutputDisplay ToolCall="DisplayedToolCall" Reasoning="DisplayedTurn?.Reasoning" ReasoningControls="DisplayedTurn?.ReasoningControls ?? new()" Network="NetworkFor(DisplayedToolCall)" />
                         }
                     </div>
                 </div>
@@ -187,6 +189,12 @@
             @if (activeTab == "activity" && ShowUsers)
             {
                 <AllActivityTab OnOpen="OpenFromActivity" />
+            }
+
+            <!-- Network (admin only): every connection through the egress proxy -->
+            @if (activeTab == "network" && ShowUsers)
+            {
+                <NetworkTab OnOpen="OpenFromActivity" />
             }
         </div>
     </section>
@@ -252,6 +260,25 @@
 
     private ToolCall? DisplayedToolCall =>
         (selectedToolCallId != null ? ToolCallService.GetToolCall(selectedToolCallId) : null) ?? lastToolCall;
+
+    // The connections the displayed call's tool made through the egress proxy. Read from the store, which also has
+    // traffic figures added from the proxy's access log; the log entries are the fallback (they're what reopened
+    // sessions and the transcript rely on, but they're written before the traffic figures arrive).
+    private IReadOnlyList<EgressEvent> NetworkFor(ToolCall call)
+    {
+        try
+        {
+            var stored = Store.LoadEgressEvents(call.Id);
+            if (stored.Count > 0)
+                return stored;
+        }
+        catch (Exception)
+        {
+            // Fall back to what was logged.
+        }
+
+        return LogService.GetLogs().Where(e => e.ToolCallId == call.Id).Select(ToolCallService.ReadEgress).OfType<EgressEvent>().ToList();
+    }
     private bool showConfirmation = false;
     private List<LogEntry> recentLogs = new();
 
@@ -732,7 +759,12 @@
 
         // Controls tripped in the session (including any on this summary), built from the log.
         var trips = SessionReportBuilder.ListControlTrips(LogService.GetLogs());
-        sessionReport = sessionReport with { ControlTrips = trips, ExternalShares = SessionReportBuilder.ListExternalShares(LogService.GetLogs()) };
+        sessionReport = sessionReport with
+        {
+            ControlTrips = trips,
+            ExternalShares = SessionReportBuilder.ListExternalShares(LogService.GetLogs()),
+            NetworkConnections = SessionReportBuilder.ListNetworkConnections(LogService.GetLogs()),
+        };
         if (trips.Count > 0)
         {
             var tripText = string.Join("; ", trips.Select(t =>

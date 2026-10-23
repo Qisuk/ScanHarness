@@ -165,6 +165,56 @@
         }
     </div>
 
+    @if (Report.Connections.Count > 0)
+    {
+        var refusedCount = Report.Connections.Count(c => !c.Connection.Allowed);
+        <div class="session-shares sh-box" data-testid="session-network">
+            <span class="sh-box-title">Network activity</span>
+            <span class="sh-box-aside">
+                @Report.Connections.Count connection@(Report.Connections.Count == 1 ? "" : "s") ·
+                @Report.Connections.Select(c => c.Connection.Host).Distinct().Count() host@(Report.Connections.Select(c => c.Connection.Host).Distinct().Count() == 1 ? "" : "s") ·
+                @refusedCount refused
+            </span>
+            <div class="session-tools-scroll">
+                <table class="table session-tools-table session-shares-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="col-number">#</th>
+                            <th class="col-time">Time</th>
+                            @if (ShowUsers)
+                            {
+                                <th class="col-user">User</th>
+                            }
+                            <th>Tool</th>
+                            <th>Connection</th>
+                            <th>Outcome</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Report.Connections)
+                        {
+                            var connection = item.Connection;
+                            <tr>
+                                <td class="mono">@item.Number</td>
+                                <td class="mono">@item.Time.ToLocalTime().ToString("HH:mm:ss")</td>
+                                @if (ShowUsers)
+                                {
+                                    <td class="session-user">@(item.UserName ?? "—")</td>
+                                }
+                                <td class="mono">@item.Tool</td>
+                                <td class="mono">@connection.Describe()</td>
+                                <td>
+                                    <span class="badge sh-pill @(connection.Allowed ? "sh-pill-info" : "sh-pill-danger")">@(connection.Allowed ? "Allowed" : "Refused")</span>
+                                    <span class="session-control-stage">@connection.Reason</span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
     <div class="session-tools sh-box">
         <span class="sh-box-title">Tools called</span>
         <span class="sh-box-aside">@Report.ToolCalls.Count in this session</span>

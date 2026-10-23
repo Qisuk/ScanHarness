@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using ScanHarness.Services.Agents;
 using ScanHarness.Services.Boundaries;
+using ScanHarness.Services.Egress;
 
 namespace ScanHarness.Services
 {
@@ -54,6 +55,16 @@ namespace ScanHarness.Services
             System.Text.RegularExpressions.Regex.Matches(template, @"\{(\w+)\}").Select(m => m.Groups[1].Value);
     }
 
+    /// <summary>What a tool may reach on the network through the egress proxy (see docs/design/egress-proxy.md).</summary>
+    /// <param name="Domains">Domains (and their subdomains) the tool may always reach, e.g. a weather API.</param>
+    /// <param name="Ports">Ports it may use; null uses egress.json's allowedPorts.</param>
+    /// <param name="EngagementScope">Whether it may also reach the domains of the engagement its call runs under.</param>
+    public sealed record ToolEgress(IReadOnlyList<string> Domains, IReadOnlyList<int>? Ports, bool EngagementScope)
+    {
+        /// <summary>No network access at all: what a tool gets when it has no egress block and no scope.</summary>
+        public static ToolEgress None { get; } = new(Array.Empty<string>(), null, false);
+    }
+
     /// <summary>
     /// Describes a tool the agent brain may choose. The catalog is the single source of truth for what a
     /// brain is offered and for whether a tool needs approval or an engagement scope, so a model can never
@@ -73,6 +84,7 @@ namespace ScanHarness.Services
     /// <param name="RequiresScope">The url parameter must be inside the session's approved engagement scope.</param>
     /// <param name="Http">How the tool is called; null for agents, which run in the harness.</param>
     /// <param name="Keywords">Words the keyword brain matches for tools it has no special handling for.</param>
+    /// <param name="Egress">What the tool may reach through the egress proxy; null means only its engagement scope (if any).</param>
     public sealed record ToolDefinition(
         string FunctionName,
         string Tool,
@@ -87,7 +99,8 @@ namespace ScanHarness.Services
         Trust OutputTrust = Trust.Untrusted,
         bool RequiresScope = false,
         ToolHttpBinding? Http = null,
-        IReadOnlyList<string>? Keywords = null)
+        IReadOnlyList<string>? Keywords = null,
+        ToolEgress? Egress = null)
     {
         /// <summary>Tool identifier used for agents.</summary>
         public const string AgentTool = "agent";
@@ -97,6 +110,12 @@ namespace ScanHarness.Services
 
         /// <summary>Key used for this tool's policy, e.g. "tool:simple_scanner" or "agent:findings-analyst".</summary>
         public string PolicyId => IsAgent ? $"agent:{Action}" : $"tool:{FunctionName}";
+
+        /// <summary>
+        /// What the tool may reach through the egress proxy. Without an egress block, a tool limited to the engagement
+        /// scope may reach the engagement's domains and nothing else, and any other tool may reach nothing.
+        /// </summary>
+        public ToolEgress EffectiveEgress => Egress ?? (RequiresScope ? ToolEgress.None with { EngagementScope = true } : ToolEgress.None);
 
         /// <summary>Formats the confirmation message for the chosen parameters.</summary>
         public string FormatConfirmation(IReadOnlyDictionary<string, string> parameters)
@@ -208,6 +227,24 @@ namespace ScanHarness.Services
 
                 if (e.RequiresScope == true && !parameters.Any(p => p.Type == ToolParameterType.Url))
                     errors.Add($"{label}: \"requiresScope\" needs a url parameter to check.");
+                ToolEgress? egress = null;
+                if (e.Egress != null)
+                {
+                    var domains = new List<string>();
+                    foreach (var raw in e.Egress.Domains ?? new List<string>())
+                    {
+                        var problem = EgressCatalog.ValueProblem(EgressMatchType.Domain, raw ?? "", EgressAction.Allow);
+                        if (problem != null)
+                            errors.Add($"{label}: egress domain {problem}");
+                        else
+                            domains.Add(EgressHost.Normalise(raw)!);
+                    }
+
+                    foreach (var port in (e.Egress.Ports ?? new List<int>()).Where(p => p is < 1 or > 65535))
+                        errors.Add($"{label}: egress port {port} isn't a valid port.");
+                    egress = new ToolEgress(domains, e.Egress.Ports, e.Egress.EngagementScope ?? (e.RequiresScope ?? false));
+                }
+
                 foreach (var name in ToolHttpBinding.Placeholders(e.Http?.Path ?? "").Concat(ToolHttpBinding.Placeholders(e.Confirmation ?? ""))
                              .Where(name => parameters.All(p => p.Name != name)).Distinct())
                     errors.Add($"{label}: {{{name}}} doesn't match a parameter.");
@@ -216,7 +253,8 @@ namespace ScanHarness.Services
                 {
                     tools.Add(new ToolDefinition(e.FunctionName!, e.Tool!, e.Action!, e.Description!, e.RequiresApproval ?? false, parameters,
                         e.Confirmation!, e.ConfirmationWithoutOptional, e.Classification!.Value, e.OutputLabel!.Value, e.OutputTrust!.Value,
-                        e.RequiresScope ?? false, new ToolHttpBinding(e.Http!.Method!.ToUpperInvariant(), e.Http.Path!), e.Keywords ?? new List<string>()));
+                        e.RequiresScope ?? false, new ToolHttpBinding(e.Http!.Method!.ToUpperInvariant(), e.Http.Path!), e.Keywords ?? new List<string>(),
+                        egress));
                 }
             }
 
@@ -246,6 +284,14 @@ namespace ScanHarness.Services
             public Sensitivity? OutputLabel { get; set; }
             public Trust? OutputTrust { get; set; }
             public List<string>? Keywords { get; set; }
+            public EgressEntry? Egress { get; set; }
+        }
+
+        private sealed class EgressEntry
+        {
+            public List<string>? Domains { get; set; }
+            public List<int>? Ports { get; set; }
+            public bool? EngagementScope { get; set; }
         }
 
         private sealed class ParameterEntry
